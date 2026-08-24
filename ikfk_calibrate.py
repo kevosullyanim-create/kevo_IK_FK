@@ -114,6 +114,15 @@ def build_calibration_locators(
                 3
             )
 
+            print(
+                "  [DEBUG] pair object id: {0}, pair contents: {1}".format(id(pair), pair)
+            )
+            print(
+                "  [DEBUG] Read rotations: X={0}, Y={1}, Z={2}".format(
+                    rotate_x, rotate_y, rotate_z
+                )
+            )
+
             # Store the calibration data in the configuration dictionary.
             pair["offset"] = {
                 "rotate_order": rotate_order,
@@ -123,6 +132,12 @@ def build_calibration_locators(
                     "z": rotate_z
                 }
             }
+
+            print(
+                "  [DEBUG] Stored to pair: {0}".format(
+                    pair["offset"]
+                )
+            )
 
             created.append(
                 (
