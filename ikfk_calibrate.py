@@ -2,9 +2,9 @@
 ikfk_calibrate.py
 
 Calibration-tab logic: build temporary locator pairs between an
-IK-driven source and its FK control, read the rotation offset between
-them, and clean the locators up once the offset is safely written to
-the JSON config (handled by the caller, in ikfk_ui.py).
+IK-driven control and its FK counterpart, read the rotation offset
+between them, and clean the locators up once the offset is safely
+written to the JSON config (handled by the caller, in ikfk_ui.py).
 """
 import maya.cmds as cmds
 
@@ -13,22 +13,18 @@ from ikfk_io import ns_join, HOOK_ROTATE_ORDER
 
 def build_calibration_locators(
         limbs,
-        source_namespace,
-        target_namespace,
+        namespace,
         rotate_order=HOOK_ROTATE_ORDER):
 
-    if not source_namespace or not target_namespace:
-        raise ValueError(
-            "Both a source and target namespace are required."
-        )
+    if not namespace:
+        raise ValueError("A namespace is required.")
 
     created = []
 
     print("")
     print("=" * 60)
     print("IK -> FK Calibration Locator Build")
-    print("Source namespace: {0}".format(source_namespace))
-    print("Target namespace: {0}".format(target_namespace))
+    print("Namespace: {0}".format(namespace))
     print("=" * 60)
 
     for limb_name, pairs in limbs.items():
@@ -37,9 +33,9 @@ def build_calibration_locators(
 
         for index, pair in enumerate(pairs):
             fk_name = pair.get("fk_ctrl", "").strip()
-            source_name = pair.get("source", "").strip()
+            ik_name = pair.get("ik_ctrl", "").strip()
 
-            if not fk_name or not source_name:
+            if not fk_name or not ik_name:
                 print(
                     "  [SKIPPED] Pair {0}: incomplete".format(
                         index + 1
@@ -47,8 +43,8 @@ def build_calibration_locators(
                 )
                 continue
 
-            source = ns_join(source_namespace, source_name)
-            fk_ctrl = ns_join(target_namespace, fk_name)
+            fk_ctrl = ns_join(namespace, fk_name)
+            ik_ctrl = ns_join(namespace, ik_name)
 
             con_loc = cmds.spaceLocator(
                 name="CALIB_con_" + fk_name
@@ -84,9 +80,9 @@ def build_calibration_locators(
                 con_loc
             )
 
-            # Snap the parent locator to the source rig.
+            # Snap the parent locator to the IK control.
             cmds.parentConstraint(
-                source,
+                ik_ctrl,
                 con_loc,
                 maintainOffset=False
             )
@@ -186,32 +182,32 @@ def delete_calibration_locators(created):
     return deleted
 
 
-def validate_calibration_pairs(limbs, source_namespace, target_namespace):
+def validate_calibration_pairs(limbs, namespace):
     missing = []
     incomplete = []
 
     for limb_name, pairs in limbs.items():
         for index, pair in enumerate(pairs):
             fk_name = pair.get("fk_ctrl", "").strip()
-            source_name = pair.get("source", "").strip()
+            ik_name = pair.get("ik_ctrl", "").strip()
 
-            if not fk_name or not source_name:
+            if not fk_name or not ik_name:
                 incomplete.append(
                     "{0} - Pair {1}".format(limb_name, index + 1)
                 )
                 continue
 
-            source = ns_join(source_namespace, source_name)
-            fk_ctrl = ns_join(target_namespace, fk_name)
-
-            if not cmds.objExists(source):
-                missing.append(
-                    "Source: {0}".format(source)
-                )
+            fk_ctrl = ns_join(namespace, fk_name)
+            ik_ctrl = ns_join(namespace, ik_name)
 
             if not cmds.objExists(fk_ctrl):
                 missing.append(
-                    "Target: {0}".format(fk_ctrl)
+                    "FK Control: {0}".format(fk_ctrl)
+                )
+
+            if not cmds.objExists(ik_ctrl):
+                missing.append(
+                    "IK Control: {0}".format(ik_ctrl)
                 )
 
     return incomplete, missing
