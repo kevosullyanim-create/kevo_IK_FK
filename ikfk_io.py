@@ -20,16 +20,16 @@ HOOK_ROTATE_ORDER = 2  # ZXY
 
 DEFAULT_LIMBS = {
     "L_arm": [
-        {"fk_ctrl": "L_shoulder_clavicle_CTRL", "source": "L_shoulder_clavicle_CTRL"},
-        {"fk_ctrl": "L_arm_fk_000_CTRL", "source": "L_arm000_JNT"},
-        {"fk_ctrl": "L_arm_fk_001_CTRL", "source": "L_arm001_JNT"},
-        {"fk_ctrl": "L_arm_fk_002_CTRL", "source": "L_arm002_JNT"},
+        {"fk_ctrl": "L_shoulder_clavicle_CTRL", "ik_ctrl": "L_shoulder_clavicle_CTRL"},
+        {"fk_ctrl": "L_arm_fk_000_CTRL", "ik_ctrl": "L_arm000_JNT"},
+        {"fk_ctrl": "L_arm_fk_001_CTRL", "ik_ctrl": "L_arm001_JNT"},
+        {"fk_ctrl": "L_arm_fk_002_CTRL", "ik_ctrl": "L_arm002_JNT"},
     ],
     "R_arm": [
-        {"fk_ctrl": "R_shoulder_clavicle_CTRL", "source": "R_shoulder_clavicle_CTRL"},
-        {"fk_ctrl": "R_arm_fk_000_CTRL", "source": "R_arm000_JNT"},
-        {"fk_ctrl": "R_arm_fk_001_CTRL", "source": "R_arm001_JNT"},
-        {"fk_ctrl": "R_arm_fk_002_CTRL", "source": "R_arm002_JNT"},
+        {"fk_ctrl": "R_shoulder_clavicle_CTRL", "ik_ctrl": "R_shoulder_clavicle_CTRL"},
+        {"fk_ctrl": "R_arm_fk_000_CTRL", "ik_ctrl": "R_arm000_JNT"},
+        {"fk_ctrl": "R_arm_fk_001_CTRL", "ik_ctrl": "R_arm001_JNT"},
+        {"fk_ctrl": "R_arm_fk_002_CTRL", "ik_ctrl": "R_arm002_JNT"},
     ],
 }
 
