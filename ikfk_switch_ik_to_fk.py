@@ -35,7 +35,7 @@ def snap_ik_to_fk(
         Limb key from the JSON file, for example "L_arm".
 
     calibration_path:
-        JSON file containing source nodes, FK controls, offsets, and
+        JSON file containing IK controls, FK controls, offsets, and
         the switch_settings block for this limb.
 
     key_before:
@@ -99,7 +99,7 @@ def snap_ik_to_fk(
         limb_data,
         switch_data,
         driver_key="fk_ctrl",
-        target_key="source"
+        target_key="ik_ctrl"
     )
 
     if problems:
@@ -152,7 +152,7 @@ def snap_ik_to_fk(
                 current_frame
             )
 
-        # Ensure all source joints represent the genuine IK-driven pose.
+        # Ensure all IK controls represent the genuine IK-driven pose.
         cmds.setAttr(
             switch_plug,
             switch_data["ik_value"]
@@ -164,10 +164,10 @@ def snap_ik_to_fk(
 
         for index, pair in enumerate(limb_data):
             fk_name = pair["fk_ctrl"].strip()
-            source_name = pair["source"].strip()
+            ik_name = pair["ik_ctrl"].strip()
 
             fk_ctrl = ns_join(namespace, fk_name)
-            source = ns_join(namespace, source_name)
+            ik_ctrl = ns_join(namespace, ik_name)
 
             rotate_order, _translate_offset, rotate_offset = read_pair_offset(pair)
 
@@ -197,14 +197,14 @@ def snap_ik_to_fk(
                 con_loc
             )
 
-            # Snap the parent locator to the live IK source, then freeze it.
-            source_constraint = cmds.parentConstraint(
-                source,
+            # Snap the parent locator to the live IK control, then freeze it.
+            ik_constraint = cmds.parentConstraint(
+                ik_ctrl,
                 con_loc,
                 maintainOffset=False
             )
 
-            cmds.delete(source_constraint)
+            cmds.delete(ik_constraint)
 
             # Translation offset is always zero for this direction - FK
             # controls stay positioned by their own rig hierarchy, so
@@ -264,7 +264,7 @@ def snap_ik_to_fk(
             )
 
             print(
-                "       Source: {0}".format(source)
+                "       IK Control: {0}".format(ik_ctrl)
             )
 
             print(
