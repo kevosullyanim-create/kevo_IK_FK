@@ -37,8 +37,7 @@ WINDOW_NAME = "ikfkToolUI"
 # ---------------------------------------------------------------------------
 _config = {}
 _config_path = DEFAULT_JSON_PATH
-_source_menu = None
-_target_menu = None
+_namespace_menu = None
 _warning_label = None
 _path_field = None
 _table_layout = None
@@ -113,42 +112,35 @@ def _sync_path_fields():
 
 
 def _refresh_namespaces(*_args):
-    """Refresh the Calibration tab's source/target menus and the IK/FK
-    tab's single namespace menu together, since they all read from the
+    """Refresh the Calibration tab's namespace menu and the IK/FK
+    tab's namespace menu together, since they all read from the
     same scene state."""
     namespaces = get_scene_namespaces()
 
     warn_text = ""
     if len(namespaces) > 2:
         warn_text = ("Warning: {0} namespaces found in scene ({1}). "
-                      "Double check source/target above.").format(len(namespaces), ", ".join(namespaces))
+                      "Expected one rig.").format(len(namespaces), ", ".join(namespaces))
     elif len(namespaces) == 0:
         warn_text = "Warning: no namespaces found in scene."
 
     cmds.text(_warning_label, edit=True, label=warn_text, visible=bool(warn_text))
 
-    current_source = current_target = None
-    if cmds.optionMenu(_source_menu, query=True, itemListLong=True):
-        current_source = cmds.optionMenu(_source_menu, query=True, value=True)
-        current_target = cmds.optionMenu(_target_menu, query=True, value=True)
+    current_ns = None
+    if cmds.optionMenu(_namespace_menu, query=True, itemListLong=True):
+        current_ns = cmds.optionMenu(_namespace_menu, query=True, value=True)
 
-    for menu in (_source_menu, _target_menu):
-        for item in cmds.optionMenu(menu, query=True, itemListLong=True) or []:
-            cmds.deleteUI(item)
-        for ns in namespaces:
-            cmds.menuItem(label=ns, parent=menu)
+    for item in cmds.optionMenu(_namespace_menu, query=True, itemListLong=True) or []:
+        cmds.deleteUI(item)
+    for ns in namespaces:
+        cmds.menuItem(label=ns, parent=_namespace_menu)
 
-    if current_source in namespaces:
-        cmds.optionMenu(_source_menu, edit=True, value=current_source)
+    if current_ns in namespaces:
+        cmds.optionMenu(_namespace_menu, edit=True, value=current_ns)
     elif namespaces:
-        cmds.optionMenu(_source_menu, edit=True, value=namespaces[0])
+        cmds.optionMenu(_namespace_menu, edit=True, value=namespaces[0])
 
-    if current_target in namespaces:
-        cmds.optionMenu(_target_menu, edit=True, value=current_target)
-    elif len(namespaces) > 1:
-        cmds.optionMenu(_target_menu, edit=True, value=namespaces[1])
-
-    # IK/FK tab's single namespace menu.
+    # IK/FK tab's namespace menu.
     current_switch_ns = None
     if _switch_namespace_menu and cmds.optionMenu(_switch_namespace_menu, query=True, itemListLong=True):
         current_switch_ns = cmds.optionMenu(_switch_namespace_menu, query=True, value=True)
@@ -194,7 +186,7 @@ def _remove_limb(limb, *_args):
 
 
 def _add_pair(limb, *_args):
-    _config[limb].append({"fk_ctrl": "", "source": ""})
+    _config[limb].append({"fk_ctrl": "", "ik_ctrl": ""})
     _rebuild_table()
 
 
@@ -216,8 +208,7 @@ def _add_limb(*_args):
 
 def _build_field_row(parent, label, value, limb_name, idx, key):
     """One labeled row with a read-only textField + Set/Clear buttons.
-    Used for both the 'Target FK Control' and 'Source Object' rows,
-    which were previously duplicated blocks differing only in the key."""
+    Used for both the 'FK Control' and 'IK Control' rows."""
     cmds.text(
         label=label,
         align="left",
@@ -346,12 +337,12 @@ def _rebuild_table(*_args):
 
         for idx, pair in enumerate(pairs):
             fk_value = pair.get("fk_ctrl", "").strip()
-            source_value = pair.get("source", "").strip()
+            ik_value = pair.get("ik_ctrl", "").strip()
 
-            if fk_value and source_value:
+            if fk_value and ik_value:
                 pair_colour = (0.30, 0.45, 0.30)
                 status_text = "Complete"
-            elif fk_value or source_value:
+            elif fk_value or ik_value:
                 pair_colour = (0.50, 0.42, 0.20)
                 status_text = "Incomplete"
             else:
@@ -403,13 +394,13 @@ def _rebuild_table(*_args):
             cmds.setParent(pair_column)
 
             _build_field_row(
-                pair_column, "Target FK Control", fk_value,
+                pair_column, "FK Control", fk_value,
                 limb_name, idx, "fk_ctrl"
             )
 
             _build_field_row(
-                pair_column, "Source Object", source_value,
-                limb_name, idx, "source"
+                pair_column, "IK Control", ik_value,
+                limb_name, idx, "ik_ctrl"
             )
 
         # ----------------------------------------------------------
@@ -516,54 +507,29 @@ def _do_save(save_as=False, *_args):
 
 
 def _do_build(*_args):
-    source_ns = cmds.optionMenu(
-        _source_menu,
-        query=True,
-        value=True
-    )
-
-    target_ns = cmds.optionMenu(
-        _target_menu,
+    namespace = cmds.optionMenu(
+        _namespace_menu,
         query=True,
         value=True
     )
 
     # --------------------------------------------------------------
-    # Check namespace selections
+    # Check namespace selection
     # --------------------------------------------------------------
-    if not source_ns or not target_ns:
+    if not namespace:
         cmds.confirmDialog(
             title="Missing Selection",
-            message=(
-                "Pick both a source and target namespace."
-            ),
+            message="Pick a namespace.",
             button=["OK"]
         )
         return
-
-    if source_ns == target_ns:
-        proceed = cmds.confirmDialog(
-            title="Same Namespace",
-            message=(
-                "Source and target namespaces are the same "
-                "({0}). Continue anyway?"
-            ).format(source_ns),
-            button=["Continue", "Cancel"],
-            defaultButton="Cancel",
-            cancelButton="Cancel",
-            dismissString="Cancel"
-        )
-
-        if proceed != "Continue":
-            return
 
     # --------------------------------------------------------------
     # Validate all configured pairs before building
     # --------------------------------------------------------------
     incomplete, missing = validate_calibration_pairs(
         _config,
-        source_ns,
-        target_ns
+        namespace
     )
 
     problems = []
@@ -592,8 +558,7 @@ def _do_build(*_args):
     try:
         created = build_calibration_locators(
             _config,
-            source_ns,
-            target_ns
+            namespace
         )
 
     except Exception as exc:
@@ -794,7 +759,7 @@ def _do_snap_all(direction, *_args):
 # Window
 # ---------------------------------------------------------------------------
 def _build_calibration_tab(parent):
-    global _source_menu, _target_menu, _warning_label, _path_field, _table_layout
+    global _namespace_menu, _warning_label, _path_field, _table_layout
 
     calib_form = cmds.formLayout(parent=parent)
 
@@ -808,18 +773,11 @@ def _build_calibration_tab(parent):
     cmds.text(label="", height=2)
 
     cmds.text(
-        label="Source namespace (IK rig, posed):",
+        label="Namespace (single rig):",
         align="left"
     )
 
-    _source_menu = cmds.optionMenu()
-
-    cmds.text(
-        label="Target namespace (FK rig, matched):",
-        align="left"
-    )
-
-    _target_menu = cmds.optionMenu()
+    _namespace_menu = cmds.optionMenu()
 
     _warning_label = cmds.text(
         label="",
