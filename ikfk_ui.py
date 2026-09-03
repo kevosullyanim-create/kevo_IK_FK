@@ -608,6 +608,12 @@ def _do_build(*_args):
             "Use Save As to save the offset data. The CALIB locators "
             "have been left in the scene until the offsets are saved."
         )
+        # After save_limbs succeeds, read it back and verify
+        try:
+            verification = load_limbs(_config_path)
+            print("  [VERIFY] Saved config: {0}".format(verification))
+        except Exception as e:
+            print("  [VERIFY ERROR] Could not re-read: {0}".format(e))
 
     # --------------------------------------------------------------
     # Clean up the temporary locators, but only once the offsets are
