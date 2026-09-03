@@ -70,6 +70,17 @@ _COLOUR_OK = (0.30, 0.45, 0.30)
 _COLOUR_WARN = (0.48, 0.25, 0.25)
 
 
+def _generate_switch_settings_for_limb(limb_name):
+    """Generate switch settings for a new limb based on naming convention.
+    Assumes pattern: {limb_name}_CMP|input with attr {limb_name}_ikfk_bl"""
+    return {
+        "object": "{0}_CMP|input".format(limb_name),
+        "attr_name": "{0}_ikfk_bl".format(limb_name),
+        "ik_value": 0,
+        "fk_value": 1,
+    }
+
+
 def _sync_path_fields():
     """Update both tabs' read-only path display to the current
     _config_path, and colour-flag the IK/FK tab's copy red when there
@@ -209,66 +220,8 @@ def _add_limb(*_args):
     
     _config[name] = []
     
-    # Prompt for switch settings for this new limb
-    cmds.promptDialog(
-        title="Add Switch Settings",
-        message="Switch object and attribute (e.g., 'L_arm_CMP|input' and 'L_arm_ikfk_bl'):",
-        button=["Continue", "Cancel"],
-        defaultButton="Continue",
-        cancelButton="Cancel",
-        dismissString="Cancel"
-    )
-    
-    object_str = cmds.promptDialog(query=True, text=True).strip()
-    
-    if object_str:
-        cmds.promptDialog(
-            title="Switch Attribute Name",
-            message="Attribute name:",
-            button=["Continue", "Cancel"],
-            defaultButton="Continue",
-            cancelButton="Cancel",
-            dismissString="Cancel",
-            text="ikfk_bl"
-        )
-        attr_name = cmds.promptDialog(query=True, text=True).strip()
-        
-        if attr_name:
-            cmds.promptDialog(
-                title="IK Value",
-                message="IK mode value:",
-                button=["Continue", "Cancel"],
-                defaultButton="Continue",
-                cancelButton="Cancel",
-                dismissString="Cancel",
-                text="0"
-            )
-            try:
-                ik_value = float(cmds.promptDialog(query=True, text=True).strip())
-            except ValueError:
-                ik_value = 0
-            
-            cmds.promptDialog(
-                title="FK Value",
-                message="FK mode value:",
-                button=["Continue", "Cancel"],
-                defaultButton="Continue",
-                cancelButton="Cancel",
-                dismissString="Cancel",
-                text="1"
-            )
-            try:
-                fk_value = float(cmds.promptDialog(query=True, text=True).strip())
-            except ValueError:
-                fk_value = 1
-            
-            # Add to switch settings
-            _switch_settings[name] = {
-                "object": object_str,
-                "attr_name": attr_name,
-                "ik_value": ik_value,
-                "fk_value": fk_value,
-            }
+    # Auto-generate switch settings based on limb name
+    _switch_settings[name] = _generate_switch_settings_for_limb(name)
     
     _rebuild_table()
     _rebuild_ikfk_buttons()
