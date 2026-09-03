@@ -42,18 +42,20 @@ def compute_pole_vector_position(
     Solve a pole vector world position from the shoulder/elbow/wrist
     controls' current pose.
 
-    Method: build a locator at the elbow aimed back at the shoulder,
-    and a second locator at the elbow aimed out at the wrist. Push each
-    locator `distance` along its own aim axis (i.e. away from what it's
-    aiming at - one extends the upper-arm line past the elbow, the
-    other extends the forearm line past the elbow, in the opposite
-    direction). A point constrained to both of those settles on the
-    bend-plane bisector, offset out from the elbow - a stable pole
-    vector position at any pose, unlike a fixed local-space offset off
-    the elbow control alone.
+    Method:
+    - Create two locators at the elbow.
+    - Aim one at the shoulder and the other at the wrist.
+    - Parent a fixed offset locator under each aimed locator.
+    - Set each offset locator to local translate X = -25.
+    - Point constrain the final pole-position locator to both offset
+      locators.
+    - Read the resulting world-space position.
 
-    Returns an (x, y, z) world-space translate tuple. All temporary
-    nodes are cleaned up before returning, including on error.
+    The offset locators provide a fixed distance from the elbow along
+    each aimed axis. The midpoint between those two points gives the
+    calculated pole-vector position.
+
+    Returns an (x, y, z) world-space translate tuple.
     """
     shoulder_ctrl = ns_join(namespace, shoulder_ctrl_name)
     elbow_ctrl = ns_join(namespace, elbow_ctrl_name)
@@ -66,16 +68,59 @@ def compute_pole_vector_position(
             name="TMP_pole_elbow_to_shoulder"
         )[0]
 
+        loc_from_shoulder_offset = cmds.spaceLocator(
+            name="TMP_pole_elbow_to_shoulder_offset"
+        )[0]
+
         loc_from_wrist = cmds.spaceLocator(
             name="TMP_pole_elbow_to_wrist"
+        )[0]
+
+        loc_from_wrist_offset = cmds.spaceLocator(
+            name="TMP_pole_elbow_to_wrist_offset"
         )[0]
 
         pole_position_loc = cmds.spaceLocator(
             name="TMP_pole_position"
         )[0]
 
+        cmds.parent(
+            loc_from_shoulder_offset,
+            loc_from_shoulder
+        )
+
+        cmds.parent(
+            loc_from_wrist_offset,
+            loc_from_wrist
+        )
+
+        # Set explicit local transforms for the offset locators.
+        cmds.setAttr(
+            loc_from_shoulder_offset + ".translate",
+            -25, 0, 0
+        )
+        cmds.setAttr(
+            loc_from_shoulder_offset + ".rotate",
+            0, 0, 0
+        )
+
+        cmds.setAttr(
+            loc_from_wrist_offset + ".translate",
+            -25, 0, 0
+        )
+        cmds.setAttr(
+            loc_from_wrist_offset + ".rotate",
+            0, 0, 0
+        )
+
         temp_nodes.extend(
-            [loc_from_shoulder, loc_from_wrist, pole_position_loc]
+            [
+                loc_from_shoulder,
+                loc_from_shoulder_offset,
+                loc_from_wrist,
+                loc_from_wrist_offset,
+                pole_position_loc,
+            ]
         )
 
         # Both aim locators sit at the elbow to start.
@@ -118,24 +163,10 @@ def compute_pole_vector_position(
             worldUpVector=(0, 1, 0)
         )
 
-        cmds.delete(aim_at_shoulder, aim_at_wrist)
-
-        # Push each locator away from what it's aiming at, extending
-        # the bone line past the elbow.
-        cmds.setAttr(loc_from_shoulder + ".translateX", distance)
-        cmds.setAttr(loc_from_shoulder + ".translateY", 0)
-        cmds.setAttr(loc_from_shoulder + ".translateZ", 0)
-        cmds.setAttr(loc_from_shoulder + ".rotate", 0, 0, 0)
-
-        cmds.setAttr(loc_from_wrist + ".translateX", distance)
-        cmds.setAttr(loc_from_wrist + ".translateY", 0)
-        cmds.setAttr(loc_from_wrist + ".translateZ", 0)
-        cmds.setAttr(loc_from_wrist + ".rotate", 0, 0, 0)
-
         # Average the two extended points.
         pole_point_constraint = cmds.pointConstraint(
-            loc_from_shoulder,
-            loc_from_wrist,
+            loc_from_shoulder_offset,
+            loc_from_wrist_offset,
             pole_position_loc
         )
 
@@ -155,6 +186,7 @@ def compute_pole_vector_position(
         for node in temp_nodes:
             if cmds.objExists(node):
                 cmds.delete(node)
+        pass
 
     return tuple(world_position)
 
