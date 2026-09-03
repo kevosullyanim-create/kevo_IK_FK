@@ -57,6 +57,7 @@ _ikfk_path_field = None
 _ikfk_warning_label = None
 _key_before_cb = None
 _key_after_cb = None
+_ikfk_buttons_column = None
 
 # Switch settings (object/attr_name/ik_value/fk_value per limb),
 # loaded from the calibration JSON's "switch_settings" block. This
@@ -182,7 +183,10 @@ def _remove_limb(limb, *_args):
     del _config[limb]
     _collapsed_state.pop(limb, None)
     _limb_frames.pop(limb, None)
+    # Also remove from switch settings when removing a limb
+    _switch_settings.pop(limb, None)
     _rebuild_table()
+    _rebuild_ikfk_buttons()
 
 
 def _add_pair(limb, *_args):
@@ -202,8 +206,72 @@ def _add_limb(*_args):
     if name in _config:
         cmds.warning("Limb '{0}' already exists.".format(name))
         return
+    
     _config[name] = []
+    
+    # Prompt for switch settings for this new limb
+    cmds.promptDialog(
+        title="Add Switch Settings",
+        message="Switch object and attribute (e.g., 'L_arm_CMP|input' and 'L_arm_ikfk_bl'):",
+        button=["Continue", "Cancel"],
+        defaultButton="Continue",
+        cancelButton="Cancel",
+        dismissString="Cancel"
+    )
+    
+    object_str = cmds.promptDialog(query=True, text=True).strip()
+    
+    if object_str:
+        cmds.promptDialog(
+            title="Switch Attribute Name",
+            message="Attribute name:",
+            button=["Continue", "Cancel"],
+            defaultButton="Continue",
+            cancelButton="Cancel",
+            dismissString="Cancel",
+            text="ikfk_bl"
+        )
+        attr_name = cmds.promptDialog(query=True, text=True).strip()
+        
+        if attr_name:
+            cmds.promptDialog(
+                title="IK Value",
+                message="IK mode value:",
+                button=["Continue", "Cancel"],
+                defaultButton="Continue",
+                cancelButton="Cancel",
+                dismissString="Cancel",
+                text="0"
+            )
+            try:
+                ik_value = float(cmds.promptDialog(query=True, text=True).strip())
+            except ValueError:
+                ik_value = 0
+            
+            cmds.promptDialog(
+                title="FK Value",
+                message="FK mode value:",
+                button=["Continue", "Cancel"],
+                defaultButton="Continue",
+                cancelButton="Cancel",
+                dismissString="Cancel",
+                text="1"
+            )
+            try:
+                fk_value = float(cmds.promptDialog(query=True, text=True).strip())
+            except ValueError:
+                fk_value = 1
+            
+            # Add to switch settings
+            _switch_settings[name] = {
+                "object": object_str,
+                "attr_name": attr_name,
+                "ik_value": ik_value,
+                "fk_value": fk_value,
+            }
+    
     _rebuild_table()
+    _rebuild_ikfk_buttons()
 
 
 def _build_field_row(parent, label, value, limb_name, idx, key):
@@ -424,6 +492,79 @@ def _rebuild_table(*_args):
 
 
 # ---------------------------------------------------------------------------
+# IK/FK tab: rebuild buttons
+# ---------------------------------------------------------------------------
+def _rebuild_ikfk_buttons(*_args):
+    """Rebuild the per-limb snap buttons on the IK/FK tab based on current
+    _switch_settings. Called whenever switch settings change."""
+    if not _ikfk_buttons_column:
+        return
+    
+    # Delete all existing button groups (everything after the checkbox section)
+    # We'll rebuild from "Snap IK -> FK, per limb:" onwards
+    children = cmds.layout(_ikfk_buttons_column, query=True, childArray=True) or []
+    
+    # Find the index of the "Snap IK -> FK" label to delete from there onwards
+    for i, child in enumerate(children):
+        if cmds.objExists(child) and cmds.text(child, query=True, exists=True):
+            try:
+                label = cmds.text(child, query=True, label=True)
+                if "Snap IK -> FK" in label:
+                    # Delete from this point onwards
+                    for child_to_delete in children[i:]:
+                        if cmds.objExists(child_to_delete):
+                            cmds.deleteUI(child_to_delete)
+                    break
+            except:
+                pass
+    
+    # Rebuild the buttons section
+    cmds.setParent(_ikfk_buttons_column)
+    
+    cmds.separator(height=8, style="in")
+    
+    cmds.text(
+        label="Snap IK -> FK, per limb:",
+        align="left",
+        font="boldLabelFont"
+    )
+
+    for limb_name in sorted(_switch_settings.keys()):
+        cmds.button(
+            label="{0} FK match IK".format(limb_name),
+            command=lambda *_args, l=limb_name: _do_snap(l, "ik_to_fk"),
+            height=28
+        )
+
+    cmds.button(
+        label="All Limbs FK Match IK",
+        height=32,
+        command=lambda *_args: _do_snap_all("ik_to_fk")
+    )
+
+    cmds.separator(height=8, style="in")
+
+    cmds.text(
+        label="Snap FK -> IK, per limb:",
+        align="left",
+        font="boldLabelFont"
+    )
+
+    for limb_name in sorted(_switch_settings.keys()):
+        cmds.button(
+            label="{0} IK match FK".format(limb_name),
+            command=lambda *_args, l=limb_name: _do_snap(l, "fk_to_ik"),
+            height=28
+        )
+
+    cmds.button(
+        label="All Limbs IK Match FK",
+        height=32,
+        command=lambda *_args: _do_snap_all("fk_to_ik")
+    )
+
+
+# ---------------------------------------------------------------------------
 # Calibration tab: Load / Save / Build
 # ---------------------------------------------------------------------------
 def _do_load(*_args):
@@ -460,6 +601,7 @@ def _do_load(*_args):
 
     _sync_path_fields()
     _rebuild_table()
+    _rebuild_ikfk_buttons()
 
 
 def _do_save(save_as=False, *_args):
@@ -900,13 +1042,18 @@ def _build_calibration_tab(parent):
 
 def _build_ikfk_tab(parent):
     global _switch_namespace_menu, _ikfk_path_field, _ikfk_warning_label
-    global _key_before_cb, _key_after_cb
+    global _key_before_cb, _key_after_cb, _ikfk_buttons_column
 
-    ikfk_column = cmds.columnLayout(
+    ikfk_scroll = cmds.scrollLayout(
+        childResizable=True,
+        parent=parent
+    )
+    
+    _ikfk_buttons_column = cmds.columnLayout(
         adjustableColumn=True,
         rowSpacing=10,
         columnAttach=("both", 12),
-        parent=parent
+        parent=ikfk_scroll
     )
 
     cmds.text(label="", height=2)
@@ -969,49 +1116,7 @@ def _build_ikfk_tab(parent):
         wordWrap=True
     )
 
-    cmds.separator(height=8, style="in")
-
-    cmds.text(
-        label="Snap IK -> FK, per limb:",
-        align="left",
-        font="boldLabelFont"
-    )
-
-    for limb_name in sorted(_switch_settings.keys()):
-        cmds.button(
-            label="{0} FK match IK".format(limb_name),
-            command=lambda *_args, l=limb_name: _do_snap(l, "ik_to_fk"),
-            height=28
-        )
-
-    cmds.button(
-        label="All Limbs FK Match IK",
-        height=32,
-        command=lambda *_args: _do_snap_all("ik_to_fk")
-    )
-
-    cmds.separator(height=8, style="in")
-
-    cmds.text(
-        label="Snap FK -> IK, per limb:",
-        align="left",
-        font="boldLabelFont"
-    )
-
-    for limb_name in sorted(_switch_settings.keys()):
-        cmds.button(
-            label="{0} IK match FK".format(limb_name),
-            command=lambda *_args, l=limb_name: _do_snap(l, "fk_to_ik"),
-            height=28
-        )
-
-    cmds.button(
-        label="All Limbs IK Match FK",
-        height=32,
-        command=lambda *_args: _do_snap_all("fk_to_ik")
-    )
-
-    return ikfk_column
+    return ikfk_scroll
 
 
 def show_ui():
@@ -1071,3 +1176,4 @@ def show_ui():
     _refresh_namespaces()
     _rebuild_table()
     _sync_path_fields()
+    _rebuild_ikfk_buttons()
