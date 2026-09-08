@@ -1177,6 +1177,10 @@ def show_ui():
     _collapsed_state.clear()
     _limb_frames.clear()
 
+    # Start with empty switch settings - only populate when a calibration
+    # file is loaded, not from defaults.
+    _switch_settings.clear()
+
     if os.path.isfile(DEFAULT_JSON_PATH):
         try:
             _config = load_limbs(DEFAULT_JSON_PATH)
@@ -1189,12 +1193,12 @@ def show_ui():
             )
 
             _config = fresh_default_config()
-            _switch_settings = fresh_default_switch_settings()
+            _switch_settings = {}  # Empty, not defaults
             _config_path = None
 
     else:
         _config = fresh_default_config()
-        _switch_settings = fresh_default_switch_settings()
+        _switch_settings = {}  # Empty, not defaults
         _config_path = None
 
     window = cmds.window(
