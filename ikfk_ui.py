@@ -539,23 +539,28 @@ def _rebuild_ikfk_buttons(*_args):
     if not _ikfk_buttons_column:
         return
     
-    # Delete all existing button groups (everything after the checkbox section)
-    # We'll rebuild from "Snap IK -> FK, per limb:" onwards
+    # Delete all children from the "Snap IK -> FK" section onwards.
+    # Identify this by finding the last separator (the one before the buttons section)
+    # and delete everything after it.
     children = cmds.layout(_ikfk_buttons_column, query=True, childArray=True) or []
     
-    # Find the index of the "Snap IK -> FK" label to delete from there onwards
+    # Find the index of the LAST separator before our button content.
+    # Separators mark structural boundaries in the UI.
+    last_separator_index = -1
     for i, child in enumerate(children):
-        if cmds.objExists(child) and cmds.text(child, query=True, exists=True):
+        if cmds.objExists(child):
             try:
-                label = cmds.text(child, query=True, label=True)
-                if "Snap IK -> FK" in label:
-                    # Delete from this point onwards
-                    for child_to_delete in children[i:]:
-                        if cmds.objExists(child_to_delete):
-                            cmds.deleteUI(child_to_delete)
-                    break
+                # Check if this is a separator by trying to query it as one
+                if cmds.separator(child, query=True, exists=True):
+                    last_separator_index = i
             except:
                 pass
+    
+    # Delete everything after the last separator
+    if last_separator_index >= 0:
+        for child_to_delete in children[last_separator_index + 1:]:
+            if cmds.objExists(child_to_delete):
+                cmds.deleteUI(child_to_delete)
     
     # Rebuild the buttons section
     cmds.setParent(_ikfk_buttons_column)
