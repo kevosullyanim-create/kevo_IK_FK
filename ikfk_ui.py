@@ -16,6 +16,7 @@ from ikfk_io import (
     fresh_default_config,
     fresh_default_switch_settings,
     get_scene_namespaces,
+    get_selected_channel,
     get_selected_short_name,
     load_limbs,
     load_switch_settings,
@@ -62,23 +63,18 @@ _ikfk_buttons_column = None
 # Switch settings (object/attr_name/ik_value/fk_value per limb),
 # loaded from the calibration JSON's "switch_settings" block. This
 # drives which per-limb buttons appear on the IK/FK tab.
+#
+# Entries are populated by picking an attribute in the Channel Box
+# and pressing Set on the limb's "Switch Attribute" row (Calibration
+# tab) - see _set_switch_channel()/_clear_switch_channel() below. A
+# limb with no entry here simply gets no button on the IK/FK tab,
+# rather than falling back to a guessed value.
 _switch_settings = {}
 
 # Consistent with the Complete/Incomplete/Empty pair colours in the
 # Calibration tab's table.
 _COLOUR_OK = (0.30, 0.45, 0.30)
 _COLOUR_WARN = (0.48, 0.25, 0.25)
-
-
-def _generate_switch_settings_for_limb(limb_name):
-    """Generate switch settings for a new limb based on naming convention.
-    Assumes pattern: {limb_name}_CMP|input with attr {limb_name}_ikfk_bl"""
-    return {
-        "object": "{0}_CMP|input".format(limb_name),
-        "attr_name": "{0}_ikfk_bl".format(limb_name),
-        "ik_value": 0,
-        "fk_value": 1,
-    }
 
 
 def _sync_path_fields():
@@ -185,6 +181,36 @@ def _clear_field(limb, index, key, *_args):
     _rebuild_table()
 
 
+def _set_switch_channel(limb, *_args):
+    """Read the Channel Box's currently highlighted attribute and
+    store it as this limb's switch attribute, preserving any existing
+    ik_value/fk_value (or defaulting to 0/1 for a brand new entry)."""
+    result = get_selected_channel()
+    if result is None:
+        return
+
+    obj, attr_name = result
+    existing = _switch_settings.get(limb, {})
+
+    _switch_settings[limb] = {
+        "object": obj,
+        "attr_name": attr_name,
+        "ik_value": existing.get("ik_value", 0),
+        "fk_value": existing.get("fk_value", 1),
+    }
+
+    _rebuild_table()
+    _rebuild_ikfk_buttons()
+
+
+def _clear_switch_channel(limb, *_args):
+    """Remove this limb's switch attribute entirely - the limb loses
+    its IK/FK tab button until a new one is set."""
+    _switch_settings.pop(limb, None)
+    _rebuild_table()
+    _rebuild_ikfk_buttons()
+
+
 def _remove_pair(limb, index, *_args):
     del _config[limb][index]
     _rebuild_table()
@@ -217,12 +243,14 @@ def _add_limb(*_args):
     if name in _config:
         cmds.warning("Limb '{0}' already exists.".format(name))
         return
-    
+
     _config[name] = []
-    
-    # Auto-generate switch settings based on limb name
-    _switch_settings[name] = _generate_switch_settings_for_limb(name)
-    
+
+    # Switch attribute is intentionally left unset here - pick it via
+    # the Channel Box (Set button on the limb's Switch Attribute row)
+    # rather than guessing from a naming convention. The limb has no
+    # IK/FK tab button until that's done.
+
     _rebuild_table()
     _rebuild_ikfk_buttons()
 
@@ -423,6 +451,64 @@ def _rebuild_table(*_args):
                 pair_column, "IK Control", ik_value,
                 limb_name, idx, "ik_ctrl"
             )
+
+        # ----------------------------------------------------------
+        # Switch attribute
+        # ----------------------------------------------------------
+        cmds.separator(
+            height=6,
+            style="none",
+            parent=limb_column
+        )
+
+        switch_data = _switch_settings.get(limb_name)
+
+        switch_display = (
+            "{0}.{1}".format(switch_data["object"], switch_data["attr_name"])
+            if switch_data else "(not set - select in Channel Box)"
+        )
+
+        cmds.text(
+            label="Switch Attribute",
+            align="left",
+            parent=limb_column
+        )
+
+        switch_row = cmds.rowLayout(
+            numberOfColumns=3,
+            adjustableColumn=1,
+            columnWidth=[
+                (2, 50),
+                (3, 50)
+            ],
+            columnAttach=[
+                (1, "both", 0),
+                (2, "both", 3),
+                (3, "both", 3)
+            ],
+            parent=limb_column
+        )
+
+        cmds.textField(
+            text=switch_display,
+            editable=False,
+            annotation="Switch Attribute",
+            parent=switch_row
+        )
+
+        cmds.button(
+            label="Set",
+            command=lambda *_args, l=limb_name: _set_switch_channel(l),
+            parent=switch_row
+        )
+
+        cmds.button(
+            label="Clear",
+            command=lambda *_args, l=limb_name: _clear_switch_channel(l),
+            parent=switch_row
+        )
+
+        cmds.setParent(limb_column)
 
         # ----------------------------------------------------------
         # Limb controls
@@ -687,6 +773,14 @@ def _do_build(*_args):
                 )
             )
 
+            # NOTE: known bug (flagged, not yet fixed) - a verification
+            # read-back used to live in the "no path" branch below,
+            # where _config_path is always falsy, so it could never
+            # actually verify anything. If you want a real verify
+            # step, it belongs here, e.g.:
+            #     verification = load_limbs(_config_path)
+            #     print("  [VERIFY] Saved config: {0}".format(verification))
+
         except Exception as exc:
             error_dialog(
                 "Offset Save Failed",
@@ -703,12 +797,6 @@ def _do_build(*_args):
             "Use Save As to save the offset data. The CALIB locators "
             "have been left in the scene until the offsets are saved."
         )
-        # After save_limbs succeeds, read it back and verify
-        try:
-            verification = load_limbs(_config_path)
-            print("  [VERIFY] Saved config: {0}".format(verification))
-        except Exception as e:
-            print("  [VERIFY ERROR] Could not re-read: {0}".format(e))
 
     # --------------------------------------------------------------
     # Clean up the temporary locators, but only once the offsets are
@@ -936,7 +1024,8 @@ def _build_calibration_tab(parent):
     cmds.text(
         label=(
             "Select an object in the viewport, then press Set on the "
-            "row where you want the object stored."
+            "row where you want it stored. For the switch attribute, "
+            "highlight it in the Channel Box first, then press Set."
         ),
         align="left",
         wordWrap=True
