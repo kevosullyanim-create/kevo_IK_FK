@@ -56,6 +56,10 @@ DEFAULT_LIMBS = {
 # rotate_order is assumed to be HOOK_ROTATE_ORDER (ZXY) for the IK
 # handle pairs since it wasn't specified - verify this in-scene if a
 # snap looks rotated wrong.
+#
+# NOTE: Arm definitions are kept as defaults for backwards compatibility,
+# but legs should be generated during calibration and saved to JSON
+# (see generate_fk_to_ik_pairs in ikfk_calibrate.py).
 DEFAULT_FK_TO_IK_LIMBS = {
     "L_arm": [
         {
@@ -399,6 +403,17 @@ def load_fk_to_ik_limbs(path):
         )
 
     return fk_to_ik
+
+
+def save_fk_to_ik_limbs(fk_to_ik_limbs, path):
+    """Write FK -> IK pairs into the calibration JSON's "fk_to_ik" key,
+    preserving everything else already in the file (limb pairs,
+    switch_settings)."""
+    data = _read_json_root(path)
+    data["fk_to_ik"] = fk_to_ik_limbs
+
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
 
 
 def load_switch_settings(path):
