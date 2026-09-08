@@ -226,3 +226,140 @@ def validate_calibration_pairs(limbs, namespace):
                 )
 
     return incomplete, missing
+
+
+def generate_fk_to_ik_pairs(limbs, namespace, rotate_order=HOOK_ROTATE_ORDER):
+    """
+    Generate FK -> IK pair definitions from IK -> FK limb pairs.
+    
+    For each limb, creates three pair types:
+    1. Hip/root (offset) - self-match with zero offset
+    2. Pole vector - solved live from first/second/third FK controls
+    3. Ankle/end (offset) - measured rotation offset between FK and IK
+    
+    Returns a dict keyed by limb_name with generated pair lists.
+    """
+    fk_to_ik_limbs = {}
+    
+    print("")
+    print("=" * 60)
+    print("Generating FK -> IK Pair Definitions")
+    print("=" * 60)
+    
+    for limb_name, pairs in limbs.items():
+        if not pairs or len(pairs) < 2:
+            print("")
+            print("  [SKIPPED] {0}: requires at least 2 IK->FK pairs (hip, mid, end)".format(
+                limb_name
+            ))
+            continue
+        
+        print("")
+        print("=== {0} ===".format(limb_name))
+        
+        fk_to_ik_limbs[limb_name] = []
+        
+        # First pair: hip/root (self-match, zero offset)
+        hip_pair = pairs[0]
+        hip_fk = hip_pair.get("fk_ctrl", "").strip()
+        
+        if hip_fk:
+            fk_to_ik_limbs[limb_name].append({
+                "type": "offset",
+                "fk_ctrl": hip_fk,
+                "ik_ctrl": hip_fk,
+                "offset": {
+                    "rotate_order": rotate_order,
+                    "translate": {"x": 0, "y": 0, "z": 0},
+                    "rotate": {"x": 0, "y": 0, "z": 0},
+                },
+            })
+            print("  [OK] Hip/root (self-match, zero offset): {0}".format(hip_fk))
+        
+        # Middle pair: pole vector (solved live from hip/mid/end)
+        if len(pairs) >= 3:
+            hip_fk = pairs[0].get("fk_ctrl", "").strip()
+            mid_fk = pairs[1].get("fk_ctrl", "").strip()
+            end_fk = pairs[2].get("fk_ctrl", "").strip()
+            
+            if hip_fk and mid_fk and end_fk:
+                # Infer IK pole vector name from limb name (e.g., L_arm -> L_arm_ik_pole_CTRL)
+                limb_base = limb_name.rsplit("_", 1)[0] if "_" in limb_name else limb_name
+                ik_pole = "{0}_ik_pole_CTRL".format(limb_base)
+                
+                fk_to_ik_limbs[limb_name].append({
+                    "type": "pole_vector",
+                    "shoulder_ctrl": hip_fk,
+                    "elbow_ctrl": mid_fk,
+                    "wrist_ctrl": end_fk,
+                    "ik_ctrl": ik_pole,
+                    "distance": -25,
+                })
+                print("  [OK] Pole vector (solved live): {0}".format(ik_pole))
+        
+        # Last pair: end effector (ankle/wrist) with measured rotation offset
+        if len(pairs) >= 2:
+            end_fk = pairs[-1].get("fk_ctrl", "").strip()
+            end_ik_name = pairs[-1].get("ik_ctrl", "").strip()
+            
+            if end_fk and end_ik_name:
+                # Measure the rotation offset between FK end and IK end
+                fk_ctrl = ns_join(namespace, end_fk)
+                ik_ctrl = ns_join(namespace, end_ik_name)
+                
+                rotate_x = 0
+                rotate_y = 0
+                rotate_z = 0
+                
+                try:
+                    # Create temporary locators to measure the offset
+                    con_loc = cmds.spaceLocator(name="TMP_measure_con")[0]
+                    hook_loc = cmds.spaceLocator(name="TMP_measure_hook")[0]
+                    
+                    cmds.setAttr(con_loc + ".rotateOrder", rotate_order)
+                    cmds.setAttr(hook_loc + ".rotateOrder", rotate_order)
+                    cmds.parent(hook_loc, con_loc)
+                    
+                    # Snap to IK, then hook to FK
+                    cmds.parentConstraint(ik_ctrl, con_loc, maintainOffset=False)
+                    cmds.parentConstraint(fk_ctrl, hook_loc, maintainOffset=False)
+                    
+                    cmds.dgdirty(allPlugs=True)
+                    cmds.refresh(force=True)
+                    
+                    # Read the offset
+                    rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
+                    rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
+                    rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
+                    
+                    cmds.delete(con_loc)
+                    
+                except Exception as exc:
+                    print("  [WARNING] Could not measure IK rotation offset: {0}".format(exc))
+                
+                fk_to_ik_limbs[limb_name].append({
+                    "type": "offset",
+                    "fk_ctrl": end_fk,
+                    "ik_ctrl": end_ik_name,
+                    "offset": {
+                        "rotate_order": rotate_order,
+                        "translate": {"x": 0, "y": 0, "z": 0},
+                        "rotate": {
+                            "x": rotate_x,
+                            "y": rotate_y,
+                            "z": rotate_z,
+                        },
+                    },
+                })
+                print("  [OK] End effector (measured offset): {0}".format(end_fk))
+                print("       Rotation offset: X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
+                    rotate_x, rotate_y, rotate_z
+                ))
+    
+    print("")
+    print("=" * 60)
+    print("Generated {0} limbs".format(len(fk_to_ik_limbs)))
+    print("=" * 60)
+    print("")
+    
+    return fk_to_ik_limbs
