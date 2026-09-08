@@ -133,6 +133,13 @@ IGNORED_NAMESPACES = {"UI", "shared"}
 # truth is the JSON itself once one has been saved, via
 # load_switch_settings()/save_switch_settings() below. A limb only
 # gets a button on the IK/FK tab once it has an entry here.
+#
+# NOTE: switch attribute entries are now set via the Channel Box
+# picker in the UI (get_selected_channel() below), not typed in or
+# guessed from a naming convention. This fallback exists only so an
+# older JSON file without its own switch_settings block still loads
+# without crashing - remove reliance on it once every limb in your
+# working calibration file has been re-picked through the UI.
 DEFAULT_SWITCH_SETTINGS = {
     "L_arm": {
         "object": "L_arm_CMP|input",
@@ -188,6 +195,24 @@ def ns_join(namespace, name):
     return "{0}:{1}".format(namespace, name)
 
 
+def get_switch_plug(namespace, switch_data):
+    """
+    Build the full namespaced plug ('ns:node.attr') for a limb's IK/FK
+    switch attribute from its switch_data dict (object, attr_name).
+
+    Single source of truth for turning switch_data into a plug string -
+    do not reconstruct this inline elsewhere. Anything that resolves
+    the switch attribute (validation, both snap directions) should
+    call this instead.
+    """
+    switch_node = ns_join(namespace, switch_data["object"])
+
+    return "{0}.{1}".format(
+        switch_node,
+        switch_data["attr_name"]
+    )
+
+
 def fresh_default_config():
     """Deep-ish copy of DEFAULT_LIMBS so edits never mutate the module constant."""
     return {
@@ -227,6 +252,49 @@ def get_selected_short_name():
         cmds.warning("Nothing selected.")
         return None
     return strip_namespace(sel[0].split("|")[-1])
+
+
+def get_selected_channel():
+    """
+    Return (object, attr_name) for the attribute currently highlighted
+    in the Channel Box, with namespace stripped from the object (same
+    convention as get_selected_short_name()), or None if nothing
+    usable is selected.
+
+    object may still contain '|' path separators if the selected node
+    has one (e.g. 'L_arm_CMP|input') - ns_join()/get_switch_plug()
+    already know how to handle that. attr_name is the bare attribute
+    name, not 'node.attr'.
+    """
+    sel = cmds.ls(selection=True)
+    if not sel:
+        cmds.warning("Nothing selected.")
+        return None
+
+    attrs = cmds.channelBox(
+        "mainChannelBox",
+        query=True,
+        selectedMainAttributes=True
+    )
+
+    if not attrs:
+        cmds.warning(
+            "No attribute is highlighted in the Channel Box. Click "
+            "the switch attribute there, then press Set."
+        )
+        return None
+
+    node = sel[0]
+
+    stripped_parts = [
+        strip_namespace(part)
+        for part in node.split("|")
+        if part
+    ]
+
+    object_name = "|".join(stripped_parts)
+
+    return object_name, attrs[0]
 
 
 # ---------------------------------------------------------------------------
