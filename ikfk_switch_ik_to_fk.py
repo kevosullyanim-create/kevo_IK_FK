@@ -8,7 +8,7 @@ own rig hierarchy, so translate is never touched here.
 """
 import maya.cmds as cmds
 
-from ikfk_io import ns_join, load_limbs, load_switch_settings
+from ikfk_io import ns_join, get_switch_plug, load_limbs, load_switch_settings
 from ikfk_snap_common import (
     read_pair_offset,
     key_channels,
@@ -109,15 +109,7 @@ def snap_ik_to_fk(
             )
         )
 
-    switch_node = ns_join(
-        namespace,
-        switch_data["object"]
-    )
-
-    switch_plug = "{0}.{1}".format(
-        switch_node,
-        switch_data["attr_name"]
-    )
+    switch_plug = get_switch_plug(namespace, switch_data)
 
     current_frame = cmds.currentTime(query=True)
     original_value = cmds.getAttr(switch_plug)
