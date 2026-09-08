@@ -18,7 +18,7 @@ DEFAULT_FK_TO_IK_LIMBS in ikfk_io.py for the full explanation):
 """
 import maya.cmds as cmds
 
-from ikfk_io import ns_join, load_fk_to_ik_limbs, load_switch_settings
+from ikfk_io import ns_join, get_switch_plug, load_fk_to_ik_limbs, load_switch_settings
 from ikfk_snap_common import (
     read_pair_offset,
     key_channels,
@@ -341,15 +341,7 @@ def snap_fk_to_ik(
             )
         )
 
-    switch_node = ns_join(
-        namespace,
-        switch_data["object"]
-    )
-
-    switch_plug = "{0}.{1}".format(
-        switch_node,
-        switch_data["attr_name"]
-    )
+    switch_plug = get_switch_plug(namespace, switch_data)
 
     current_frame = cmds.currentTime(query=True)
     original_value = cmds.getAttr(switch_plug)
