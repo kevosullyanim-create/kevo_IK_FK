@@ -12,7 +12,7 @@ job of ikfk_switch_ik_to_fk.py / ikfk_switch_fk_to_ik.py.
 """
 import maya.cmds as cmds
 
-from ikfk_io import ns_join, HOOK_ROTATE_ORDER
+from ikfk_io import ns_join, get_switch_plug, HOOK_ROTATE_ORDER
 
 
 # ---------------------------------------------------------------------------
@@ -235,15 +235,9 @@ def validate_switch_data(
     """
     problems = []
 
-    switch_node = ns_join(
-        namespace,
-        switch_data["object"]
-    )
+    switch_plug = get_switch_plug(namespace, switch_data)
 
-    switch_plug = "{0}.{1}".format(
-        switch_node,
-        switch_data["attr_name"]
-    )
+    switch_node = switch_plug.rsplit(".", 1)[0]
 
     if not cmds.objExists(switch_node):
         problems.append(
