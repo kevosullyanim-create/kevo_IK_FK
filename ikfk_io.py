@@ -164,7 +164,7 @@ DEFAULT_SWITCH_SETTINGS = {
 # format) must skip these when reading, and save_limbs() must preserve
 # them rather than blindly overwriting the whole file with just the
 # limb pairs it knows about.
-RESERVED_TOP_LEVEL_KEYS = ("fk_to_ik", "switch_settings")
+RESERVED_TOP_LEVEL_KEYS = ("fk_to_ik", "switch_settings", "ik_controls")
 
 
 # ---------------------------------------------------------------------------
@@ -327,8 +327,9 @@ def _read_json_root(path):
 def load_limbs(path):
     """Load a limbs config dict from JSON. Accepts either the plain
     {"L_arm": [...]} format or the older wrapped {"limbs": {...}} format.
-    Reserved top-level keys (fk_to_ik, switch_settings) are excluded
-    from the flat format so they're never mistaken for a limb."""
+    Reserved top-level keys (fk_to_ik, switch_settings, ik_controls)
+    are excluded from the flat format so they're never mistaken for a
+    limb."""
     if not os.path.isfile(path):
         raise IOError(
             "Calibration JSON file was not found:\n{0}".format(path)
@@ -357,8 +358,8 @@ def load_limbs(path):
 
 def save_limbs(limbs, path):
     """Write limbs to path in the flat top-level format, preserving
-    any reserved keys (fk_to_ik, switch_settings) already saved to
-    that file rather than wiping them out."""
+    any reserved keys (fk_to_ik, switch_settings, ik_controls) already
+    saved to that file rather than wiping them out."""
     data = _read_json_root(path)
 
     # Drop anything that used to be a limb (including a stale "limbs"
@@ -408,7 +409,7 @@ def load_fk_to_ik_limbs(path):
 def save_fk_to_ik_limbs(fk_to_ik_limbs, path):
     """Write FK -> IK pairs into the calibration JSON's "fk_to_ik" key,
     preserving everything else already in the file (limb pairs,
-    switch_settings)."""
+    switch_settings, ik_controls)."""
     data = _read_json_root(path)
     data["fk_to_ik"] = fk_to_ik_limbs
 
@@ -441,9 +442,50 @@ def load_switch_settings(path):
 def save_switch_settings(switch_settings, path):
     """Write switch_settings into the calibration JSON's
     "switch_settings" key, preserving everything else already in the
-    file (limb pairs, fk_to_ik)."""
+    file (limb pairs, fk_to_ik, ik_controls)."""
     data = _read_json_root(path)
     data["switch_settings"] = switch_settings
+
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_ik_controls(path):
+    """Load per-limb real FK -> IK controls (the IK handle and pole
+    vector control actually driven by a FK -> IK snap) from the
+    calibration JSON's "ik_controls" key.
+
+    Expected shape:
+        "ik_controls": {
+            "L_arm": {"ik_ctrl": "L_arm_ik_CTRL", "pole_ctrl": "L_arm_ik_pole_CTRL"}
+        }
+
+    Unlike switch_settings, there is no legacy default to fall back
+    to - this is a new key, so a file without it simply has no
+    ik_controls recorded yet and this returns an empty dict rather
+    than a seeded fallback."""
+    data = _read_json_root(path)
+
+    if "ik_controls" not in data:
+        return {}
+
+    ik_controls = data["ik_controls"]
+
+    if not isinstance(ik_controls, dict):
+        raise ValueError(
+            "Calibration JSON's 'ik_controls' entry must be a "
+            "dictionary."
+        )
+
+    return ik_controls
+
+
+def save_ik_controls(ik_controls, path):
+    """Write ik_controls into the calibration JSON's "ik_controls"
+    key, preserving everything else already in the file (limb pairs,
+    fk_to_ik, switch_settings)."""
+    data = _read_json_root(path)
+    data["ik_controls"] = ik_controls
 
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
