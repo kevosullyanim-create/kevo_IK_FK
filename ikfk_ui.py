@@ -29,6 +29,12 @@ from ikfk_calibrate import (
     build_calibration_locators,
     delete_calibration_locators,
     validate_calibration_pairs,
+    validate_ik_controls,
+    generate_fk_to_ik_pairs,
+)
+from ikfk_io import (
+    ...,
+    save_fk_to_ik_limbs,
 )
 from ikfk_switch_ik_to_fk import snap_ik_to_fk
 from ikfk_switch_fk_to_ik import snap_fk_to_ik
@@ -883,6 +889,15 @@ def _do_build(*_args):
             )
         )
 
+    ik_control_problems = validate_ik_controls(_config, _ik_controls)
+
+    if ik_control_problems:
+        problems.append(
+            "Incomplete FK -> IK Controls:\n{0}".format(
+                "\n".join(ik_control_problems)
+            )
+        )
+
     if problems:
         error_dialog("Cannot Build", "\n\n".join(problems))
         return
@@ -900,6 +915,17 @@ def _do_build(*_args):
         error_dialog("Build Failed", exc)
 
         # Keep this while troubleshooting for the full traceback.
+        raise
+
+    try:
+        fk_to_ik_config = generate_fk_to_ik_pairs(
+            _config,
+            _ik_controls,
+            namespace
+        )
+
+    except Exception as exc:
+        error_dialog("FK -> IK Generation Failed", exc)
         raise
 
     # --------------------------------------------------------------
@@ -923,7 +949,12 @@ def _do_build(*_args):
                 _ik_controls,
                 _config_path
             )
-
+            
+            save_fk_to_ik_limbs(
+                fk_to_ik_config,
+                _config_path
+            )
+            
             save_succeeded = True
 
             print(
