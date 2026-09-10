@@ -293,7 +293,6 @@ def generate_fk_to_ik_pairs(limbs, namespace, rotate_order=HOOK_ROTATE_ORDER):
                     "elbow_ctrl": mid_fk,
                     "wrist_ctrl": end_fk,
                     "ik_ctrl": ik_pole,
-                    "distance": -25,
                 })
                 print("  [OK] Pole vector (solved live): {0}".format(ik_pole))
         
