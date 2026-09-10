@@ -49,9 +49,11 @@ DEFAULT_LIMBS = {
 #       compute_pole_vector_position in ikfk_switch_fk_to_ik.py) rather
 #       than read from a static offset, since a fixed offset off the
 #       elbow only stays correct at the pose it was measured at.
-#       "distance" is how far the solved point sits off the elbow,
-#       along the bend-plane bisector (matches the -25 used when this
-#       was worked out by hand in the viewport).
+#       The distance the solved point sits off the elbow is NOT stored
+#       here - it's a live value entered in a field on the IK/FK tab
+#       at snap time (see _pole_distance_field in ikfk_ui.py), not
+#       calibration data, since it's a per-session judgement call
+#       rather than something measured once and reused.
 #
 # rotate_order is assumed to be HOOK_ROTATE_ORDER (ZXY) for the IK
 # handle pairs since it wasn't specified - verify this in-scene if a
@@ -78,7 +80,6 @@ DEFAULT_FK_TO_IK_LIMBS = {
             "elbow_ctrl": "L_arm_fk_001_CTRL",
             "wrist_ctrl": "L_arm_fk_002_CTRL",
             "ik_ctrl": "L_arm_ik_pole_CTRL",
-            "distance": -25,
         },
         {
             "type": "offset",
@@ -108,7 +109,6 @@ DEFAULT_FK_TO_IK_LIMBS = {
             "elbow_ctrl": "R_arm_fk_001_CTRL",
             "wrist_ctrl": "R_arm_fk_002_CTRL",
             "ik_ctrl": "R_arm_ik_pole_CTRL",
-            "distance": -25,
         },
         {
             "type": "offset",
