@@ -97,7 +97,7 @@ def compute_pole_vector_position(
         # Set explicit local transforms for the offset locators.
         cmds.setAttr(
             loc_from_shoulder_offset + ".translate",
-            distance, 0, 0
+            -distance, 0, 0
         )
         cmds.setAttr(
             loc_from_shoulder_offset + ".rotate",
@@ -106,7 +106,7 @@ def compute_pole_vector_position(
 
         cmds.setAttr(
             loc_from_wrist_offset + ".translate",
-            distance, 0, 0
+            -distance, 0, 0
         )
         cmds.setAttr(
             loc_from_wrist_offset + ".rotate",
