@@ -21,6 +21,7 @@ from ikfk_io import (
     load_ik_controls,
     load_limbs,
     load_switch_settings,
+    save_fk_to_ik_limbs,
     save_ik_controls,
     save_limbs,
     save_switch_settings,
@@ -32,10 +33,7 @@ from ikfk_calibrate import (
     validate_ik_controls,
     generate_fk_to_ik_pairs,
 )
-from ikfk_io import (
-    ...,
-    save_fk_to_ik_limbs,
-)
+
 from ikfk_switch_ik_to_fk import snap_ik_to_fk
 from ikfk_switch_fk_to_ik import snap_fk_to_ik
 
