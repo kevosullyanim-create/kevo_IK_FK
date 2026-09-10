@@ -327,8 +327,8 @@ def generate_fk_to_ik_pairs(limbs, ik_controls, namespace, rotate_order=HOOK_ROT
                         "  [SKIPPED] Pole vector: no Pole Vector "
                         "Control set for {0}".format(limb_name)
                     )
-                else:   
-                        +                    fk_to_ik_limbs[limb_name].append({
+                else:
+                    fk_to_ik_limbs[limb_name].append({
                         "type": "pole_vector",
                         "shoulder_ctrl": hip_fk,
                         "elbow_ctrl": mid_fk,
