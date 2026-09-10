@@ -97,7 +97,7 @@ def compute_pole_vector_position(
         # Set explicit local transforms for the offset locators.
         cmds.setAttr(
             loc_from_shoulder_offset + ".translate",
-            -25, 0, 0
+            distance, 0, 0
         )
         cmds.setAttr(
             loc_from_shoulder_offset + ".rotate",
@@ -106,7 +106,7 @@ def compute_pole_vector_position(
 
         cmds.setAttr(
             loc_from_wrist_offset + ".translate",
-            -25, 0, 0
+            distance, 0, 0
         )
         cmds.setAttr(
             loc_from_wrist_offset + ".rotate",
@@ -202,7 +202,6 @@ def _validate_pole_vector_pair(namespace, limb_name, index, pair):
         "elbow_ctrl",
         "wrist_ctrl",
         "ik_ctrl",
-        "distance",
     )
 
     for key in required_keys:
@@ -276,7 +275,8 @@ def snap_fk_to_ik(
         limb_name,
         calibration_path,
         key_before=False,
-        key_after=False):
+        key_after=False,
+        pole_distance=None):
     """
     Snap one IK limb to its current FK-driven pose.
 
@@ -288,6 +288,11 @@ def snap_fk_to_ik(
     to ik_value at the current frame, then holds fk_value one frame
     later.
 
+    pole_distance: required whenever the limb has a pole_vector pair -
+    the live distance value entered on the IK/FK tab, used for every
+    pole vector solved during this snap. Not read from JSON; this is
+    a per-session value, not calibration data.
+    
     If neither key_before nor key_after is set, the IK controls are
     still snapped to match the FK pose, but the switch attribute
     itself is left exactly where it started - it's flipped internally
@@ -300,6 +305,11 @@ def snap_fk_to_ik(
             "Calibration tab first."
         )
 
+    if pole_distance is None:
+        raise ValueError(
+            "No pole vector distance set. Enter one in the field on "
+            "the IK/FK tab before snapping."
+        )
     limbs = load_fk_to_ik_limbs(calibration_path)
 
     if limb_name not in limbs:
@@ -397,7 +407,7 @@ def snap_fk_to_ik(
                 elbow_name = pair["elbow_ctrl"].strip()
                 wrist_name = pair["wrist_ctrl"].strip()
                 ik_name = pair["ik_ctrl"].strip()
-                distance = pair["distance"]
+                distance = pole_distance
 
                 ik_ctrl = ns_join(namespace, ik_name)
 
