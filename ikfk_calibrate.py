@@ -337,73 +337,140 @@ def generate_fk_to_ik_pairs(limbs, ik_controls, namespace, rotate_order=HOOK_ROT
                     })
                     print("  [OK] Pole vector (solved live): {0}".format(ik_pole))
 
-        
         # Last pair: end effector (ankle/wrist) with measured rotation offset
         if len(pairs) >= 2:
             end_fk = pairs[-1].get("fk_ctrl", "").strip()
-            end_ik_name = ik_controls.get(limb_name, {}).get("ik_ctrl", "").strip()
-           
-            if end_fk and end_ik_name:
-                # Measure the rotation offset between FK end and IK end
-                # end_ik_name is the real IK handle control (from
-                # ik_controls), not the IK -> FK joint - the offset
-                # needs to be measured against, and later used to
-                # drive, the actual control that gets snapped.
-                fk_ctrl = ns_join(namespace, end_fk)
-                ik_ctrl = ns_join(namespace, end_ik_name)
-            elif end_fk and not end_ik_name:
+            end_ik_name = ik_controls.get(
+                limb_name, {}
+            ).get("ik_ctrl", "").strip()
+
+            if not end_fk:
+                print(
+                    "  [SKIPPED] End effector: no FK Control set "
+                    "for {0}".format(limb_name)
+                )
+                continue
+
+            if not end_ik_name:
                 print(
                     "  [SKIPPED] End effector: no IK Control set "
                     "for {0}".format(limb_name)
-                )            
-                rotate_x = 0
-                rotate_y = 0
-                rotate_z = 0
-                
-                try:
-                    # Create temporary locators to measure the offset
-                    con_loc = cmds.spaceLocator(name="TMP_measure_con")[0]
-                    hook_loc = cmds.spaceLocator(name="TMP_measure_hook")[0]
-                    
-                    cmds.setAttr(con_loc + ".rotateOrder", rotate_order)
-                    cmds.setAttr(hook_loc + ".rotateOrder", rotate_order)
-                    cmds.parent(hook_loc, con_loc)
-                    
-                    # Snap to IK, then hook to FK
-                    cmds.parentConstraint(ik_ctrl, con_loc, maintainOffset=False)
-                    cmds.parentConstraint(fk_ctrl, hook_loc, maintainOffset=False)
-                    
-                    cmds.dgdirty(allPlugs=True)
-                    cmds.refresh(force=True)
-                    
-                    # Read the offset
-                    rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
-                    rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
-                    rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
-                    
-                    cmds.delete(con_loc)
-                    
-                except Exception as exc:
-                    print("  [WARNING] Could not measure IK rotation offset: {0}".format(exc))
-                
-                fk_to_ik_limbs[limb_name].append({
-                    "type": "offset",
-                    "fk_ctrl": end_fk,
-                    "ik_ctrl": end_ik_name,
-                    "offset": {
-                        "rotate_order": rotate_order,
-                        "translate": {"x": 0, "y": 0, "z": 0},
-                        "rotate": {
-                            "x": rotate_x,
-                            "y": rotate_y,
-                            "z": rotate_z,
-                        },
+                )
+                continue
+
+            # The real FK end control and real IK handle control.
+            fk_ctrl = ns_join(namespace, end_fk)
+            ik_ctrl = ns_join(namespace, end_ik_name)
+
+            rotate_x = 0
+            rotate_y = 0
+            rotate_z = 0
+
+            try:
+                # Create temporary locators to measure the offset.
+                con_loc = cmds.spaceLocator(
+                    name="TMP_measure_con"
+                )[0]
+
+                hook_loc = cmds.spaceLocator(
+                    name="TMP_measure_hook"
+                )[0]
+
+                cmds.setAttr(
+                    con_loc + ".rotateOrder",
+                    rotate_order
+                )
+
+                cmds.setAttr(
+                    hook_loc + ".rotateOrder",
+                    rotate_order
+                )
+
+                cmds.parent(
+                    hook_loc,
+                    con_loc
+                )
+
+                # Snap to IK, then hook to FK.
+                cmds.parentConstraint(
+                    ik_ctrl,
+                    con_loc,
+                    maintainOffset=False
+                )
+
+                cmds.parentConstraint(
+                    fk_ctrl,
+                    hook_loc,
+                    maintainOffset=False
+                )
+
+                cmds.dgdirty(allPlugs=True)
+                cmds.refresh(force=True)
+
+                # Read the offset.
+                rotate_x = round(
+                    cmds.getAttr(hook_loc + ".rotateX"),
+                    3
+                )
+
+                rotate_y = round(
+                    cmds.getAttr(hook_loc + ".rotateY"),
+                    3
+                )
+
+                rotate_z = round(
+                    cmds.getAttr(hook_loc + ".rotateZ"),
+                    3
+                )
+
+                cmds.delete(con_loc)
+
+            except Exception as exc:
+                print(
+                    "  [WARNING] Could not measure IK rotation "
+                    "offset: {0}".format(exc)
+                )
+
+            fk_to_ik_limbs[limb_name].append({
+                "type": "offset",
+                "fk_ctrl": end_fk,
+                "ik_ctrl": end_ik_name,
+                "offset": {
+                    "rotate_order": rotate_order,
+                    "translate": {
+                        "x": 0,
+                        "y": 0,
+                        "z": 0
                     },
-                })
-                print("  [OK] End effector (measured offset): {0}".format(end_fk))
-                print("       Rotation offset: X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
-                    rotate_x, rotate_y, rotate_z
-                ))
+                    "rotate": {
+                        "x": rotate_x,
+                        "y": rotate_y,
+                        "z": rotate_z
+                    }
+                }
+            })
+
+            print(
+                "  [OK] End effector (measured offset): {0}".format(
+                    end_fk
+                )
+            )
+
+            print(
+                "       IK Control: {0}".format(
+                    end_ik_name
+                )
+            )
+
+            print(
+                "       Rotation offset: "
+                "X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
+                    rotate_x,
+                    rotate_y,
+                    rotate_z
+                )
+            )     
+
     
     print("")
     print("=" * 60)
