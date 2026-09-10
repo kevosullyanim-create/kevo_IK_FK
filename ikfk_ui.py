@@ -14,7 +14,6 @@ from ikfk_io import (
     DEFAULT_JSON_PATH,
     error_dialog,
     fresh_default_config,
-    fresh_default_switch_settings,
     get_scene_namespaces,
     get_selected_channel,
     get_selected_short_name,
