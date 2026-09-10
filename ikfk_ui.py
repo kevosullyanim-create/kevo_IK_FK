@@ -94,7 +94,7 @@ _ik_controls = {}
 # to the FK -> IK snap buttons. Deliberately NOT persisted to JSON -
 # always read fresh from the field at snap time (per-session value),
 # rather than stored per-limb/per-pair like calibration data.
-_pole_distance_value = -25.0
+_pole_distance_value = 25.0
 _pole_distance_field = None
 
 # Consistent with the Complete/Incomplete/Empty pair colours in the
