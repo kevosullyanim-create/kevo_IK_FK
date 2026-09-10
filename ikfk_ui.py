@@ -87,10 +87,24 @@ _switch_settings = {}
 # (see load_ik_controls()/save_ik_controls() in ikfk_io.py).
 _ik_controls = {}
 
+# Live pole vector distance, entered as a field on the IK/FK tab next
+# to the FK -> IK snap buttons. Deliberately NOT persisted to JSON -
+# always read fresh from the field at snap time (per-session value),
+# rather than stored per-limb/per-pair like calibration data.
+_pole_distance_value = -25.0
+_pole_distance_field = None
+
 # Consistent with the Complete/Incomplete/Empty pair colours in the
 # Calibration tab's table.
 _COLOUR_OK = (0.30, 0.45, 0.30)
 _COLOUR_WARN = (0.48, 0.25, 0.25)
+
+
+def _on_pole_distance_changed(*_args):
+    global _pole_distance_value
+    _pole_distance_value = cmds.floatField(
+        _pole_distance_field, query=True, value=True
+    )
 
 
 def _sync_path_fields():
@@ -706,11 +720,25 @@ def _rebuild_ikfk_buttons(*_args):
 
     cmds.separator(height=8, style="in")
 
+    global _pole_distance_field
+
     cmds.text(
         label="Snap FK -> IK, per limb:",
         align="left",
         font="boldLabelFont"
     )
+
+    row = cmds.rowLayout(
+        numberOfColumns=2,
+        adjustableColumn=2,
+        columnAttach=[(1, "both", 0), (2, "both", 6)]
+    )
+    cmds.text(label="Pole Vector Distance:", align="left")
+    _pole_distance_field = cmds.floatField(
+        value=_pole_distance_value,
+        changeCommand=_on_pole_distance_changed
+    )
+    cmds.setParent(_ikfk_buttons_column)
 
     for limb_name in sorted(_switch_settings.keys()):
         cmds.button(
@@ -1008,14 +1036,18 @@ def _do_snap(limb_name, direction, *_args):
 
     snap_func = _SNAP_FUNCTIONS[direction]
 
+    kwargs = dict(
+        namespace=namespace,
+        limb_name=limb_name,
+        calibration_path=_config_path,
+        key_before=key_before,
+        key_after=key_after
+    )
+    if direction == "fk_to_ik":
+        kwargs["pole_distance"] = _pole_distance_value
+
     try:
-        snap_func(
-            namespace=namespace,
-            limb_name=limb_name,
-            calibration_path=_config_path,
-            key_before=key_before,
-            key_after=key_after
-        )
+        snap_func(**kwargs)
 
     except Exception as exc:
         error_dialog("Snap Failed", exc)
@@ -1052,14 +1084,18 @@ def _do_snap_all(direction, *_args):
         key_before = cmds.checkBox(_key_before_cb, query=True, value=True)
         key_after = cmds.checkBox(_key_after_cb, query=True, value=True)
 
+        kwargs = dict(
+            namespace=namespace,
+            limb_name=limb_name,
+            calibration_path=_config_path,
+            key_before=key_before,
+            key_after=key_after
+        )
+        if direction == "fk_to_ik":
+            kwargs["pole_distance"] = _pole_distance_value
+
         try:
-            snap_func(
-                namespace=namespace,
-                limb_name=limb_name,
-                calibration_path=_config_path,
-                key_before=key_before,
-                key_after=key_after
-            )
+            snap_func(**kwargs)
 
         except Exception as exc:
             error_dialog(
