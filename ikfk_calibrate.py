@@ -228,7 +228,38 @@ def validate_calibration_pairs(limbs, namespace):
     return incomplete, missing
 
 
-def generate_fk_to_ik_pairs(limbs, namespace, rotate_order=HOOK_ROTATE_ORDER):
+def validate_ik_controls(limbs, ik_controls):
+    """
+    Check that every limb in `limbs` has a complete _ik_controls entry
+    (both ik_ctrl and pole_ctrl filled in) before FK -> IK pairs can
+    be generated. Returns a list of human-readable problem strings,
+    empty if everything is complete.
+    """
+    incomplete = []
+
+    for limb_name in limbs:
+        entry = ik_controls.get(limb_name, {})
+        ik_ctrl = entry.get("ik_ctrl", "").strip()
+        pole_ctrl = entry.get("pole_ctrl", "").strip()
+
+        if not ik_ctrl or not pole_ctrl:
+            missing_parts = []
+            if not ik_ctrl:
+                missing_parts.append("IK Control")
+            if not pole_ctrl:
+                missing_parts.append("Pole Vector Control")
+
+            incomplete.append(
+                "{0} - missing {1}".format(
+                    limb_name, " and ".join(missing_parts)
+                )
+            )
+
+    return incomplete
+
+
+def generate_fk_to_ik_pairs(limbs, ik_controls, namespace, rotate_order=HOOK_ROTATE_ORDER):
+
     """
     Generate FK -> IK pair definitions from IK -> FK limb pairs.
     
@@ -236,6 +267,12 @@ def generate_fk_to_ik_pairs(limbs, namespace, rotate_order=HOOK_ROTATE_ORDER):
     1. Hip/root (offset) - self-match with zero offset
     2. Pole vector - solved live from first/second/third FK controls
     3. Ankle/end (offset) - measured rotation offset between FK and IK
+    
+    ik_controls is the _ik_controls dict from the UI (per-limb real
+    "ik_ctrl"/"pole_ctrl" values) - the real IK handle and pole
+    vector control to write into the generated pairs, rather than
+    guessing the pole name from limb_name or reusing the IK -> FK
+    joint name.
     
     Returns a dict keyed by limb_name with generated pair lists.
     """
@@ -283,29 +320,42 @@ def generate_fk_to_ik_pairs(limbs, namespace, rotate_order=HOOK_ROTATE_ORDER):
             end_fk = pairs[2].get("fk_ctrl", "").strip()
             
             if hip_fk and mid_fk and end_fk:
-                # Infer IK pole vector name from limb name (e.g., L_arm -> L_arm_ik_pole_CTRL)
-                limb_base = limb_name.rsplit("_", 1)[0] if "_" in limb_name else limb_name
-                ik_pole = "{0}_ik_pole_CTRL".format(limb_base)
-                
-                fk_to_ik_limbs[limb_name].append({
-                    "type": "pole_vector",
-                    "shoulder_ctrl": hip_fk,
-                    "elbow_ctrl": mid_fk,
-                    "wrist_ctrl": end_fk,
-                    "ik_ctrl": ik_pole,
-                })
-                print("  [OK] Pole vector (solved live): {0}".format(ik_pole))
+                ik_pole = ik_controls.get(limb_name, {}).get("pole_ctrl", "").strip()
+
+                if not ik_pole:
+                    print(
+                        "  [SKIPPED] Pole vector: no Pole Vector "
+                        "Control set for {0}".format(limb_name)
+                    )
+                else:   
+                        +                    fk_to_ik_limbs[limb_name].append({
+                        "type": "pole_vector",
+                        "shoulder_ctrl": hip_fk,
+                        "elbow_ctrl": mid_fk,
+                        "wrist_ctrl": end_fk,
+                        "ik_ctrl": ik_pole,
+                    })
+                    print("  [OK] Pole vector (solved live): {0}".format(ik_pole))
+
         
         # Last pair: end effector (ankle/wrist) with measured rotation offset
         if len(pairs) >= 2:
             end_fk = pairs[-1].get("fk_ctrl", "").strip()
-            end_ik_name = pairs[-1].get("ik_ctrl", "").strip()
-            
+            end_ik_name = ik_controls.get(limb_name, {}).get("ik_ctrl", "").strip()
+           
             if end_fk and end_ik_name:
                 # Measure the rotation offset between FK end and IK end
+                # end_ik_name is the real IK handle control (from
+                # ik_controls), not the IK -> FK joint - the offset
+                # needs to be measured against, and later used to
+                # drive, the actual control that gets snapped.
                 fk_ctrl = ns_join(namespace, end_fk)
                 ik_ctrl = ns_join(namespace, end_ik_name)
-                
+            elif end_fk and not end_ik_name:
+                print(
+                    "  [SKIPPED] End effector: no IK Control set "
+                    "for {0}".format(limb_name)
+                )            
                 rotate_x = 0
                 rotate_y = 0
                 rotate_z = 0
