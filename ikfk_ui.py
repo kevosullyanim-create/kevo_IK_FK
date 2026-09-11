@@ -90,12 +90,16 @@ _switch_settings = {}
 # (see load_ik_controls()/save_ik_controls() in ikfk_io.py).
 _ik_controls = {}
 
-# Live pole vector distance, entered as a field on the IK/FK tab next
-# to the FK -> IK snap buttons. Deliberately NOT persisted to JSON -
-# always read fresh from the field at snap time (per-session value),
-# rather than stored per-limb/per-pair like calibration data.
-_pole_distance_value = 25.0
-_pole_distance_field = None
+# Live pole vector distance per limb, entered as a field next to each
+# limb's FK -> IK snap button. Deliberately NOT persisted to JSON -
+# always read fresh from the field at snap time. Per-limb because the
+# sign/magnitude depends on the limb's bend direction (e.g. a knee
+# bends the opposite way relative to hip/knee/ankle compared to how
+# an elbow bends relative to shoulder/elbow/wrist, so arms and legs
+# need opposite-sign values).
+_pole_distance_values = {}  # limb_name -> float, session-only
+_pole_distance_fields = {}  # limb_name -> floatField control, rebuilt each _rebuild_ikfk_buttons() call
+
 
 # Consistent with the Complete/Incomplete/Empty pair colours in the
 # Calibration tab's table.
@@ -103,11 +107,13 @@ _COLOUR_OK = (0.30, 0.45, 0.30)
 _COLOUR_WARN = (0.48, 0.25, 0.25)
 
 
-def _on_pole_distance_changed(*_args):
-    global _pole_distance_value
-    _pole_distance_value = cmds.floatField(
-        _pole_distance_field, query=True, value=True
-    )
+def _on_pole_distance_changed(limb_name, *_args):
+    field = _pole_distance_fields.get(limb_name)
+    if field:
+        _pole_distance_values[limb_name] = cmds.floatField(
+            field, query=True, value=True
+        )
+
 
 
 def _sync_path_fields():
@@ -723,32 +729,38 @@ def _rebuild_ikfk_buttons(*_args):
 
     cmds.separator(height=8, style="in")
 
-    global _pole_distance_field
-
     cmds.text(
         label="Snap FK -> IK, per limb:",
         align="left",
         font="boldLabelFont"
     )
 
-    row = cmds.rowLayout(
-        numberOfColumns=2,
-        adjustableColumn=2,
-        columnAttach=[(1, "both", 0), (2, "both", 6)]
-    )
-    cmds.text(label="Pole Vector Distance:", align="left")
-    _pole_distance_field = cmds.floatField(
-        value=_pole_distance_value,
-        changeCommand=_on_pole_distance_changed
-    )
-    cmds.setParent(_ikfk_buttons_column)
 
-    for limb_name in sorted(_switch_settings.keys()):
+        row = cmds.rowLayout(
+            numberOfColumns=3,
+            adjustableColumn=1,
+            columnWidth=[(2, 60), (3, 130)],
+            columnAttach=[(1, "both", 0), (2, "both", 3), (3, "both", 3)]
+        )
+
         cmds.button(
             label="{0} IK match FK".format(limb_name),
             command=lambda *_args, l=limb_name: _do_snap(l, "fk_to_ik"),
-            height=28
+            height=28,
+            parent=row
         )
+
+        cmds.text(label="Pole Dist:", align="left", parent=row)
+
+        field = cmds.floatField(
+            value=_pole_distance_values.get(limb_name, -25.0),
+            changeCommand=lambda *_args, l=limb_name: _on_pole_distance_changed(l),
+            parent=row
+        )
+
+        _pole_distance_fields[limb_name] = field
+
+        cmds.setParent(_ikfk_buttons_column)
 
     cmds.button(
         label="All Limbs IK Match FK",
@@ -1072,7 +1084,7 @@ def _do_snap(limb_name, direction, *_args):
         key_after=key_after
     )
     if direction == "fk_to_ik":
-        kwargs["pole_distance"] = _pole_distance_value
+        kwargs["pole_distance"] = _pole_distance_values.get(limb_name, -25.0)
 
     try:
         snap_func(**kwargs)
@@ -1120,8 +1132,7 @@ def _do_snap_all(direction, *_args):
             key_after=key_after
         )
         if direction == "fk_to_ik":
-            kwargs["pole_distance"] = _pole_distance_value
-
+            kwargs["pole_distance"] = _pole_distance_values.get(limb_name, -25.0)
         try:
             snap_func(**kwargs)
 
