@@ -736,31 +736,31 @@ def _rebuild_ikfk_buttons(*_args):
     )
 
 
-        row = cmds.rowLayout(
-            numberOfColumns=3,
-            adjustableColumn=1,
-            columnWidth=[(2, 60), (3, 130)],
-            columnAttach=[(1, "both", 0), (2, "both", 3), (3, "both", 3)]
-        )
+            row = cmds.rowLayout(
+                numberOfColumns=3,
+                adjustableColumn=1,
+                columnWidth=[(2, 60), (3, 130)],
+                columnAttach=[(1, "both", 0), (2, "both", 3), (3, "both", 3)]
+            )
 
-        cmds.button(
-            label="{0} IK match FK".format(limb_name),
-            command=lambda *_args, l=limb_name: _do_snap(l, "fk_to_ik"),
-            height=28,
-            parent=row
-        )
+            cmds.button(
+                label="{0} IK match FK".format(limb_name),
+                command=lambda *_args, l=limb_name: _do_snap(l, "fk_to_ik"),
+                height=28,
+                parent=row
+            )
 
-        cmds.text(label="Pole Dist:", align="left", parent=row)
+            cmds.text(label="Pole Dist:", align="left", parent=row)
 
-        field = cmds.floatField(
-            value=_pole_distance_values.get(limb_name, -25.0),
-            changeCommand=lambda *_args, l=limb_name: _on_pole_distance_changed(l),
-            parent=row
-        )
+            field = cmds.floatField(
+                value=_pole_distance_values.get(limb_name, -25.0),
+                changeCommand=lambda *_args, l=limb_name: _on_pole_distance_changed(l),
+                parent=row
+            )
 
-        _pole_distance_fields[limb_name] = field
+            _pole_distance_fields[limb_name] = field
 
-        cmds.setParent(_ikfk_buttons_column)
+            cmds.setParent(_ikfk_buttons_column)
 
     cmds.button(
         label="All Limbs IK Match FK",
