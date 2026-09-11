@@ -12,13 +12,14 @@ from ikfk_io import ns_join, HOOK_ROTATE_ORDER
 
 
 def build_calibration_locators(
-        limbs,
+        config,
         namespace,
         rotate_order=HOOK_ROTATE_ORDER):
 
     if not namespace:
         raise ValueError("A namespace is required.")
 
+    ik_controls = config.get("ik_controls", {})
     created = []
 
     print("")
@@ -27,7 +28,9 @@ def build_calibration_locators(
     print("Namespace: {0}".format(namespace))
     print("=" * 60)
 
-    for limb_name, pairs in limbs.items():
+    for limb_name in ik_controls:
+        pairs = config.get(limb_name, [])
+
         print("")
         print("=== {0} ===".format(limb_name))
 
@@ -55,30 +58,12 @@ def build_calibration_locators(
             )[0]
 
             # Set both locator rotate orders before constraining.
-            cmds.setAttr(
-                con_loc + ".rotateOrder",
-                rotate_order
-            )
+            cmds.setAttr(con_loc + ".rotateOrder", rotate_order)
+            cmds.setAttr(hook_loc + ".rotateOrder", rotate_order)
+            cmds.setAttr(con_loc + ".rotateOrder", channelBox=True)
+            cmds.setAttr(hook_loc + ".rotateOrder", channelBox=True)
 
-            cmds.setAttr(
-                hook_loc + ".rotateOrder",
-                rotate_order
-            )
-
-            cmds.setAttr(
-                con_loc + ".rotateOrder",
-                channelBox=True
-            )
-
-            cmds.setAttr(
-                hook_loc + ".rotateOrder",
-                channelBox=True
-            )
-
-            cmds.parent(
-                hook_loc,
-                con_loc
-            )
+            cmds.parent(hook_loc, con_loc)
 
             # Snap the parent locator to the IK control.
             cmds.parentConstraint(
@@ -99,29 +84,9 @@ def build_calibration_locators(
             cmds.refresh(force=True)
 
             # Read and round the local rotation of the hook.
-            rotate_x = round(
-                cmds.getAttr(hook_loc + ".rotateX"),
-                3
-            )
-
-            rotate_y = round(
-                cmds.getAttr(hook_loc + ".rotateY"),
-                3
-            )
-
-            rotate_z = round(
-                cmds.getAttr(hook_loc + ".rotateZ"),
-                3
-            )
-
-            print(
-                "  [DEBUG] pair object id: {0}, pair contents: {1}".format(id(pair), pair)
-            )
-            print(
-                "  [DEBUG] Read rotations: X={0}, Y={1}, Z={2}".format(
-                    rotate_x, rotate_y, rotate_z
-                )
-            )
+            rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
+            rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
+            rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
 
             # Store the calibration data in the configuration dictionary.
             pair["offset"] = {
@@ -132,12 +97,6 @@ def build_calibration_locators(
                     "z": rotate_z
                 }
             }
-
-            print(
-                "  [DEBUG] Stored to pair: {0}".format(
-                    pair["offset"]
-                )
-            )
 
             created.append(
                 (
@@ -150,20 +109,111 @@ def build_calibration_locators(
             )
 
             print(
-                "  [OK] Pair {0}: {1}".format(
-                    index + 1,
-                    fk_name
-                )
+                "  [OK] Pair {0}: {1}".format(index + 1, fk_name)
             )
-
             print(
                 "       Rotate offset: "
                 "X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
-                    rotate_x,
-                    rotate_y,
-                    rotate_z
+                    rotate_x, rotate_y, rotate_z
                 )
             )
+
+        # --- Extra locator pair: parent -> pair 3's FK control, ---
+        # --- child -> the ik_controls[limb_name]["ik_ctrl"].     ---
+        extra_ik_name = ik_controls[limb_name].get("ik_ctrl", "").strip()
+
+        if not extra_ik_name:
+            print(
+                "  [SKIPPED] Extra pair: no ik_ctrl stored "
+                "for '{0}'".format(limb_name)
+            )
+        elif len(pairs) < 3:
+            print(
+                "  [SKIPPED] Extra pair: '{0}' has fewer than "
+                "3 pairs (pair 3 required as parent)".format(
+                    limb_name
+                )
+            )
+        else:
+            pair_three = pairs[2]
+            parent_fk_name = pair_three.get("fk_ctrl", "").strip()
+
+            if not parent_fk_name:
+                print(
+                    "  [SKIPPED] Extra pair: pair 3 fk_ctrl "
+                    "missing for '{0}'".format(limb_name)
+                )
+            else:
+                parent_fk_ctrl = ns_join(namespace, parent_fk_name)
+                extra_ik_ctrl = ns_join(namespace, extra_ik_name)
+
+                con_loc = cmds.spaceLocator(
+                    name="CALIB_con_extra_" + limb_name
+                )[0]
+
+                hook_loc = cmds.spaceLocator(
+                    name="CALIB_hook_extra_" + limb_name
+                )[0]
+
+                cmds.setAttr(con_loc + ".rotateOrder", rotate_order)
+                cmds.setAttr(hook_loc + ".rotateOrder", rotate_order)
+                cmds.setAttr(con_loc + ".rotateOrder", channelBox=True)
+                cmds.setAttr(hook_loc + ".rotateOrder", channelBox=True)
+
+                cmds.parent(hook_loc, con_loc)
+
+                # Parent locator snaps to pair 3's FK control.
+                cmds.parentConstraint(
+                    parent_fk_ctrl,
+                    con_loc,
+                    maintainOffset=False
+                )
+
+                # Child locator snaps to the ik_controls IK control.
+                cmds.parentConstraint(
+                    extra_ik_ctrl,
+                    hook_loc,
+                    maintainOffset=False
+                )
+
+                cmds.dgdirty(allPlugs=True)
+                cmds.refresh(force=True)
+
+                rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
+                rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
+                rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
+
+                # Store back onto the ik_controls entry itself.
+                ik_controls[limb_name]["offset"] = {
+                    "rotate_order": rotate_order,
+                    "rotate": {
+                        "x": rotate_x,
+                        "y": rotate_y,
+                        "z": rotate_z
+                    }
+                }
+
+                created.append(
+                    (
+                        limb_name,
+                        extra_ik_name,
+                        con_loc,
+                        hook_loc,
+                        ik_controls[limb_name]["offset"]
+                    )
+                )
+
+                print(
+                    "  [OK] Extra pair: parent={0}, ik={1}".format(
+                        parent_fk_name, extra_ik_name
+                    )
+                )
+                print(
+                    "       Rotate offset: "
+                    "X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
+                        rotate_x, rotate_y, rotate_z
+                    )
+                )
 
     print("")
     print("=" * 60)
