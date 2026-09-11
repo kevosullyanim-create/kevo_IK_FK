@@ -315,10 +315,9 @@ def generate_fk_to_ik_pairs(limbs, ik_controls, namespace, rotate_order=HOOK_ROT
         
         # Middle pair: pole vector (solved live from hip/mid/end)
         if len(pairs) >= 3:
-            hip_fk = pairs[0].get("fk_ctrl", "").strip()
-            mid_fk = pairs[1].get("fk_ctrl", "").strip()
-            end_fk = pairs[2].get("fk_ctrl", "").strip()
-            
+            hip_fk = pairs[-3].get("fk_ctrl", "").strip()
+            mid_fk = pairs[-2].get("fk_ctrl", "").strip()
+            end_fk = pairs[-1].get("fk_ctrl", "").strip()            
             if hip_fk and mid_fk and end_fk:
                 ik_pole = ik_controls.get(limb_name, {}).get("pole_ctrl", "").strip()
 
