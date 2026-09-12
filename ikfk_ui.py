@@ -1137,7 +1137,7 @@ def _do_build(*_args):
         raise
 
     try:
-        generate_ik_match_fk_pairs(
+        generated_ik_match_fk = generate_ik_match_fk_pairs(
             _config,
             namespace
         )
@@ -1145,6 +1145,9 @@ def _do_build(*_args):
     except Exception as exc:
         error_dialog("IK Match FK Generation Failed", exc)
         raise
+
+    for limb_name, pairs in generated_ik_match_fk.items():
+        _ensure_limb_data(limb_name)["ik_match_fk"] = pairs
 
     # --------------------------------------------------------------
     # Save the updated configuration, including offset_rotate values

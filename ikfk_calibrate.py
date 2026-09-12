@@ -538,7 +538,6 @@ def generate_ik_match_fk_pairs(
             },
         ]
 
-        limb_data["ik_match_fk"] = generated_pairs
         generated[limb_name] = generated_pairs
 
         print("")
