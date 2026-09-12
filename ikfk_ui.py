@@ -1148,34 +1148,27 @@ def _do_build(*_args):
 
     for limb_name, pairs in generated_ik_match_fk.items():
         existing_pairs = _ensure_limb_data(limb_name)["ik_match_fk"]
-        generated_by_role = {
+        existing_by_role = {
             (pair.get("role"), pair.get("type", "offset")): pair
-            for pair in pairs
+            for pair in existing_pairs
             if isinstance(pair, dict) and pair.get("role")
         }
-
         merged_pairs = []
-        seen_roles = set()
 
-        for pair in existing_pairs:
+        for pair in pairs:
             if not isinstance(pair, dict):
                 merged_pairs.append(pair)
                 continue
 
             pair_key = (pair.get("role"), pair.get("type", "offset"))
 
-            if pair_key in generated_by_role:
-                merged_pair = dict(pair)
-                merged_pair.update(generated_by_role[pair_key])
+            if pair.get("role") and pair_key in existing_by_role:
+                merged_pair = dict(existing_by_role[pair_key])
+                merged_pair.update(pair)
                 merged_pairs.append(merged_pair)
-                seen_roles.add(pair_key)
                 continue
 
             merged_pairs.append(pair)
-
-        for pair_key, pair in generated_by_role.items():
-            if pair_key not in seen_roles:
-                merged_pairs.append(pair)
 
         _config[limb_name]["ik_match_fk"] = merged_pairs
 
