@@ -17,20 +17,18 @@ from ikfk_io import (
     get_scene_namespaces,
     get_selected_channel,
     get_selected_short_name,
-    load_ik_controls,
     load_limbs,
     load_switch_settings,
-    save_fk_to_ik_limbs,
-    save_ik_controls,
-    save_limbs,
+    save_fk_match_ik_pairs,
+    save_ik_match_fk_pairs,
     save_switch_settings,
 )
 from ikfk_calibrate import (
     build_calibration_locators,
     delete_calibration_locators,
+    generate_ik_match_fk_pairs,
     validate_calibration_pairs,
-    validate_ik_controls,
-    generate_fk_to_ik_pairs,
+    validate_ik_match_fk_pairs,
 )
 
 from ikfk_switch_ik_to_fk import snap_ik_to_fk
@@ -76,22 +74,8 @@ _ikfk_buttons_column = None
 # rather than falling back to a guessed value.
 _switch_settings = {}
 
-# Real FK -> IK controls per limb (the IK handle and pole vector
-# control actually driven by a FK -> IK snap) - set via Set/Clear
-# from viewport selection, same idea as the pairs' fk_ctrl/ik_ctrl
-# rows but one value per limb rather than one per pair. Kept separate
-# from _config because a limb has exactly one of each, not one per
-# pair, and separate from _switch_settings because it's unrelated
-# data that happens to follow the same per-limb Set/Clear pattern.
-#
-# Entries are populated via the "FK -> IK Controls" section on the
-# Calibration tab (_set_limb_control()/_clear_limb_control() below).
-# Loaded from / saved to the calibration JSON's "ik_controls" key
-# (see load_ik_controls()/save_ik_controls() in ikfk_io.py).
-_ik_controls = {}
-
 # Live pole vector distance per limb, entered as a field next to each
-# limb's FK -> IK snap button. Deliberately NOT persisted to JSON -
+# limb's IK match FK snap button. Deliberately NOT persisted to JSON -
 # always read fresh from the field at snap time. Per-limb because the
 # sign/magnitude depends on the limb's bend direction (e.g. a knee
 # bends the opposite way relative to hip/knee/ankle compared to how
@@ -207,37 +191,73 @@ def _refresh_namespaces(*_args):
 # ---------------------------------------------------------------------------
 # Calibration tab: table
 # ---------------------------------------------------------------------------
-def _set_field(limb, index, key, *_args):
+def _ensure_limb_data(limb_name):
+    limb_data = _config.setdefault(
+        limb_name,
+        {"fk_match_ik": [], "ik_match_fk": []}
+    )
+    limb_data.setdefault("fk_match_ik", [])
+    limb_data.setdefault("ik_match_fk", [])
+    return limb_data
+
+
+def _find_special_ik_match_fk_pair(limb_name, role, pair_type):
+    limb_data = _ensure_limb_data(limb_name)
+
+    for pair in limb_data["ik_match_fk"]:
+        if not isinstance(pair, dict):
+            continue
+
+        if pair.get("role") == role and pair.get("type", "offset") == pair_type:
+            return pair
+
+    if role == "ik_handle":
+        pair = {
+            "type": "offset",
+            "role": "ik_handle",
+            "ik_ctrl": "",
+            "source": "",
+        }
+        limb_data["ik_match_fk"].insert(0, pair)
+        return pair
+
+    pair = {
+        "type": "pole_vector",
+        "role": "pole_vector",
+        "ik_ctrl": "",
+        "shoulder_ctrl": "",
+        "elbow_ctrl": "",
+        "wrist_ctrl": "",
+    }
+    limb_data["ik_match_fk"].append(pair)
+    return pair
+
+
+def _set_field(limb, section, index, key, *_args):
     value = get_selected_short_name()
     if value is None:
         return
-    _config[limb][index][key] = value
+    _ensure_limb_data(limb)[section][index][key] = value
     _rebuild_table()
 
 
-def _clear_field(limb, index, key, *_args):
-    _config[limb][index][key] = ""
+def _clear_field(limb, section, index, key, *_args):
+    _ensure_limb_data(limb)[section][index][key] = ""
     _rebuild_table()
 
 
-def _set_limb_control(limb, key, *_args):
-    """Set one value (ik_ctrl or pole_ctrl) in _ik_controls[limb] from
-    the current viewport selection. Same idea as _set_field, but for
-    a value stored once per limb rather than once per pair."""
+def _set_special_ik_match_fk_field(limb, role, pair_type, key, *_args):
     value = get_selected_short_name()
     if value is None:
         return
-    entry = _ik_controls.get(limb, {})
-    entry[key] = value
-    _ik_controls[limb] = entry
+    pair = _find_special_ik_match_fk_pair(limb, role, pair_type)
+    pair[key] = value
     _rebuild_table()
 
 
-def _clear_limb_control(limb, key, *_args):
-    """Clear one value (ik_ctrl or pole_ctrl) in _ik_controls[limb]."""
-    entry = _ik_controls.get(limb, {})
-    entry[key] = ""
-    _ik_controls[limb] = entry
+def _clear_special_ik_match_fk_field(limb, role, pair_type, key, *_args):
+    pair = _find_special_ik_match_fk_pair(limb, role, pair_type)
+    pair[key] = ""
     _rebuild_table()
 
 
@@ -271,8 +291,26 @@ def _clear_switch_channel(limb, *_args):
     _rebuild_ikfk_buttons()
 
 
-def _remove_pair(limb, index, *_args):
-    del _config[limb][index]
+def _toggle_pole_vector_flag(limb, index, value, *_args):
+    pairs = _ensure_limb_data(limb)["fk_match_ik"]
+
+    if value:
+        selected = [
+            pair for pair in pairs
+            if isinstance(pair, dict) and pair.get("use_for_pole_vector")
+        ]
+
+        if len(selected) >= 3:
+            cmds.warning("A maximum of 3 FK match IK pairs can be marked PV.")
+            _rebuild_table()
+            return
+
+    pairs[index]["use_for_pole_vector"] = bool(value)
+    _rebuild_table()
+
+
+def _remove_pair(limb, section, index, *_args):
+    del _ensure_limb_data(limb)[section][index]
     _rebuild_table()
 
 
@@ -280,16 +318,20 @@ def _remove_limb(limb, *_args):
     del _config[limb]
     _collapsed_state.pop(limb, None)
     _limb_frames.pop(limb, None)
-    # Also remove from switch settings and real IK controls when
-    # removing a limb.
     _switch_settings.pop(limb, None)
-    _ik_controls.pop(limb, None)
     _rebuild_table()
     _rebuild_ikfk_buttons()
 
 
-def _add_pair(limb, *_args):
-    _config[limb].append({"fk_ctrl": "", "ik_ctrl": ""})
+def _add_pair(limb, section, *_args):
+    if section == "fk_match_ik":
+        _ensure_limb_data(limb)[section].append(
+            {"fk_ctrl": "", "source": "", "use_for_pole_vector": False}
+        )
+    else:
+        _ensure_limb_data(limb)[section].append(
+            {"type": "offset", "ik_ctrl": "", "source": ""}
+        )
     _rebuild_table()
 
 
@@ -306,20 +348,28 @@ def _add_limb(*_args):
         cmds.warning("Limb '{0}' already exists.".format(name))
         return
 
-    _config[name] = []
-
-    # Switch attribute and real IK controls are intentionally left
-    # unset here - pick them via selection/Channel Box (Set buttons)
-    # rather than guessing from a naming convention. The limb has no
-    # IK/FK tab button until a switch attribute is set.
+    _config[name] = {
+        "fk_match_ik": [],
+        "ik_match_fk": [
+            {"type": "offset", "role": "ik_handle", "ik_ctrl": "", "source": ""},
+            {
+                "type": "pole_vector",
+                "role": "pole_vector",
+                "ik_ctrl": "",
+                "shoulder_ctrl": "",
+                "elbow_ctrl": "",
+                "wrist_ctrl": "",
+            },
+        ],
+    }
 
     _rebuild_table()
     _rebuild_ikfk_buttons()
 
 
-def _build_field_row(parent, label, value, limb_name, idx, key):
+def _build_field_row(parent, label, value, limb_name, section, idx, key):
     """One labeled row with a read-only textField + Set/Clear buttons.
-    Used for both the 'FK Control' and 'IK Control' rows on a pair."""
+    Used for editable per-pair fields in both directions."""
     cmds.text(
         label=label,
         align="left",
@@ -350,23 +400,20 @@ def _build_field_row(parent, label, value, limb_name, idx, key):
 
     cmds.button(
         label="Set",
-        command=lambda *_args, l=limb_name, i=idx, k=key:
-            _set_field(l, i, k),
+        command=lambda *_args, l=limb_name, s=section, i=idx, k=key:
+            _set_field(l, s, i, k),
         parent=row
     )
 
     cmds.button(
         label="Clear",
-        command=lambda *_args, l=limb_name, i=idx, k=key:
-            _clear_field(l, i, k),
+        command=lambda *_args, l=limb_name, s=section, i=idx, k=key:
+            _clear_field(l, s, i, k),
         parent=row
     )
 
 
-def _build_limb_field_row(parent, label, value, limb_name, key):
-    """Like _build_field_row, but for a value stored once per limb (in
-    _ik_controls) rather than once per pair (in _config). Used for the
-    real FK -> IK IK Control and Pole Vector Control rows."""
+def _build_special_ik_match_fk_row(parent, label, value, limb_name, role):
     cmds.text(
         label=label,
         align="left",
@@ -397,15 +444,19 @@ def _build_limb_field_row(parent, label, value, limb_name, key):
 
     cmds.button(
         label="Set",
-        command=lambda *_args, l=limb_name, k=key:
-            _set_limb_control(l, k),
+        command=lambda *_args, l=limb_name, r=role:
+            _set_special_ik_match_fk_field(
+                l, r, "pole_vector" if r == "pole_vector" else "offset", "ik_ctrl"
+            ),
         parent=row
     )
 
     cmds.button(
         label="Clear",
-        command=lambda *_args, l=limb_name, k=key:
-            _clear_limb_control(l, k),
+        command=lambda *_args, l=limb_name, r=role:
+            _clear_special_ik_match_fk_field(
+                l, r, "pole_vector" if r == "pole_vector" else "offset", "ik_ctrl"
+            ),
         parent=row
     )
 
@@ -465,7 +516,21 @@ def _rebuild_table(*_args):
 
     cmds.setParent(_table_layout)
 
-    for limb_name, pairs in _config.items():
+    for limb_name, limb_data in _config.items():
+        fk_match_ik_pairs = limb_data.get("fk_match_ik", [])
+        ik_match_fk_pairs = limb_data.get("ik_match_fk", [])
+        handle_pair = _find_special_ik_match_fk_pair(
+            limb_name, "ik_handle", "offset"
+        )
+        pole_pair = _find_special_ik_match_fk_pair(
+            limb_name, "pole_vector", "pole_vector"
+        )
+        manual_ik_match_fk_pairs = [
+            (index, pair) for index, pair in enumerate(ik_match_fk_pairs)
+            if isinstance(pair, dict)
+            and pair.get("type", "offset") == "offset"
+            and pair.get("role") != "ik_handle"
+        ]
 
         limb_frame = cmds.frameLayout(
             label=limb_name,
@@ -486,21 +551,144 @@ def _rebuild_table(*_args):
             parent=limb_frame
         )
 
-        if not pairs:
+        cmds.text(
+            label="FK Match IK",
+            align="left",
+            font="boldLabelFont",
+            parent=limb_column
+        )
+
+        if not fk_match_ik_pairs:
             cmds.text(
-                label="No calibration pairs.",
+                label="No FK match IK pairs.",
                 align="left",
                 parent=limb_column
             )
 
-        for idx, pair in enumerate(pairs):
+        for idx, pair in enumerate(fk_match_ik_pairs):
             fk_value = pair.get("fk_ctrl", "").strip()
-            ik_value = pair.get("ik_ctrl", "").strip()
+            source_value = pair.get("source", "").strip()
 
-            if fk_value and ik_value:
+            if fk_value and source_value:
                 pair_colour = (0.30, 0.45, 0.30)
                 status_text = "Complete"
-            elif fk_value or ik_value:
+            elif fk_value or source_value:
+                pair_colour = (0.50, 0.42, 0.20)
+                status_text = "Incomplete"
+            else:
+                pair_colour = (0.48, 0.25, 0.25)
+                status_text = "Empty"
+
+            pair_frame = cmds.frameLayout(
+                label="",
+                labelVisible=False,
+                collapsable=False,
+                marginWidth=6,
+                marginHeight=6,
+                parent=limb_column
+            )
+
+            pair_column = cmds.columnLayout(
+                adjustableColumn=True,
+                rowSpacing=5,
+                parent=pair_frame
+            )
+
+            header_row = cmds.rowLayout(
+                numberOfColumns=3,
+                adjustableColumn=1,
+                columnWidth=[(2, 55), (3, 60)],
+                columnAttach=[
+                    (1, "both", 0),
+                    (2, "both", 3),
+                    (3, "both", 3)
+                ],
+                parent=pair_column
+            )
+
+            cmds.text(
+                label="Pair {0} - {1}".format(idx + 1, status_text),
+                align="left",
+                font="boldLabelFont",
+                enableBackground=True,
+                backgroundColor=pair_colour,
+                parent=header_row
+            )
+
+            cmds.checkBox(
+                label="PV",
+                value=bool(pair.get("use_for_pole_vector", False)),
+                changeCommand=lambda value, *_args, l=limb_name, i=idx:
+                    _toggle_pole_vector_flag(l, i, value),
+                parent=header_row
+            )
+
+            cmds.button(
+                label="Delete",
+                command=lambda *_args, l=limb_name, i=idx:
+                    _remove_pair(l, "fk_match_ik", i),
+                parent=header_row
+            )
+
+            cmds.setParent(pair_column)
+
+            _build_field_row(
+                pair_column, "FK Control", fk_value,
+                limb_name, "fk_match_ik", idx, "fk_ctrl"
+            )
+
+            _build_field_row(
+                pair_column, "Source", source_value,
+                limb_name, "fk_match_ik", idx, "source"
+            )
+
+        # ----------------------------------------------------------
+        # IK match FK
+        # ----------------------------------------------------------
+        cmds.separator(
+            height=6,
+            style="none",
+            parent=limb_column
+        )
+
+        cmds.text(
+            label="IK Match FK",
+            align="left",
+            font="boldLabelFont",
+            parent=limb_column
+        )
+
+        _build_special_ik_match_fk_row(
+            limb_column,
+            "IK Handle Control",
+            handle_pair.get("ik_ctrl", ""),
+            limb_name,
+            "ik_handle"
+        )
+
+        _build_special_ik_match_fk_row(
+            limb_column,
+            "Pole Vector Control",
+            pole_pair.get("ik_ctrl", ""),
+            limb_name,
+            "pole_vector"
+        )
+
+        if not manual_ik_match_fk_pairs:
+            cmds.text(
+                label="No additional IK match FK offset pairs.",
+                align="left",
+                parent=limb_column
+            )
+
+        for display_index, (idx, pair) in enumerate(manual_ik_match_fk_pairs, start=1):
+            ik_value = pair.get("ik_ctrl", "").strip()
+            source_value = pair.get("source", "").strip()
+
+            if ik_value and source_value:
+                pair_colour = (0.30, 0.45, 0.30)
+                status_text = "Complete"
+            elif ik_value or source_value:
                 pair_colour = (0.50, 0.42, 0.20)
                 status_text = "Incomplete"
             else:
@@ -534,7 +722,7 @@ def _rebuild_table(*_args):
             )
 
             cmds.text(
-                label="Pair {0} - {1}".format(idx + 1, status_text),
+                label="Pair {0} - {1}".format(display_index, status_text),
                 align="left",
                 font="boldLabelFont",
                 enableBackground=True,
@@ -545,49 +733,62 @@ def _rebuild_table(*_args):
             cmds.button(
                 label="Delete",
                 command=lambda *_args, l=limb_name, i=idx:
-                    _remove_pair(l, i),
+                    _remove_pair(l, "ik_match_fk", i),
                 parent=header_row
             )
 
             cmds.setParent(pair_column)
 
             _build_field_row(
-                pair_column, "FK Control", fk_value,
-                limb_name, idx, "fk_ctrl"
+                pair_column, "IK Control", ik_value,
+                limb_name, "ik_match_fk", idx, "ik_ctrl"
             )
 
             _build_field_row(
-                pair_column, "IK Control", ik_value,
-                limb_name, idx, "ik_ctrl"
+                pair_column, "Source", source_value,
+                limb_name, "ik_match_fk", idx, "source"
             )
 
-        # ----------------------------------------------------------
-        # FK -> IK controls (real IK handle + pole vector control)
-        # ----------------------------------------------------------
-        cmds.separator(
-            height=6,
-            style="none",
+        cmds.frameLayout(
+            label="Pole Vector Pair",
+            collapsable=False,
+            marginWidth=6,
+            marginHeight=6,
             parent=limb_column
         )
-
+        pv_info_column = cmds.columnLayout(
+            adjustableColumn=True,
+            rowSpacing=3
+        )
         cmds.text(
-            label="FK -> IK Controls",
+            label="IK Control: {0}".format(
+                pole_pair.get("ik_ctrl", "") or "(not set)"
+            ),
             align="left",
-            font="boldLabelFont",
-            parent=limb_column
+            parent=pv_info_column
         )
-
-        limb_controls = _ik_controls.get(limb_name, {})
-
-        _build_limb_field_row(
-            limb_column, "IK Control", limb_controls.get("ik_ctrl", ""),
-            limb_name, "ik_ctrl"
+        cmds.text(
+            label="Shoulder: {0}".format(
+                pole_pair.get("shoulder_ctrl", "") or "(generated on build)"
+            ),
+            align="left",
+            parent=pv_info_column
         )
-
-        _build_limb_field_row(
-            limb_column, "Pole Vector Control", limb_controls.get("pole_ctrl", ""),
-            limb_name, "pole_ctrl"
+        cmds.text(
+            label="Elbow: {0}".format(
+                pole_pair.get("elbow_ctrl", "") or "(generated on build)"
+            ),
+            align="left",
+            parent=pv_info_column
         )
+        cmds.text(
+            label="Wrist: {0}".format(
+                pole_pair.get("wrist_ctrl", "") or "(generated on build)"
+            ),
+            align="left",
+            parent=pv_info_column
+        )
+        cmds.setParent(limb_column)
 
         # ----------------------------------------------------------
         # Switch attribute
@@ -659,7 +860,8 @@ def _rebuild_table(*_args):
         _button_pair_row(
             limb_column,
             [
-                ("Add Pair", lambda *_args, l=limb_name: _add_pair(l)),
+                ("Add FK Match IK Pair", lambda *_args, l=limb_name: _add_pair(l, "fk_match_ik")),
+                ("Add IK Match FK Pair", lambda *_args, l=limb_name: _add_pair(l, "ik_match_fk")),
                 ("Remove Limb", lambda *_args, l=limb_name: _remove_limb(l)),
             ]
         )
@@ -709,7 +911,7 @@ def _rebuild_ikfk_buttons(*_args):
     cmds.separator(height=8, style="in")
     
     cmds.text(
-        label="Snap IK -> FK, per limb:",
+        label="FK match IK, per limb:",
         align="left",
         font="boldLabelFont"
     )
@@ -730,7 +932,7 @@ def _rebuild_ikfk_buttons(*_args):
     cmds.separator(height=8, style="in")
 
     cmds.text(
-        label="Snap FK -> IK, per limb:",
+        label="IK match FK, per limb:",
         align="left",
         font="boldLabelFont"
     )
@@ -773,7 +975,7 @@ def _rebuild_ikfk_buttons(*_args):
 # Calibration tab: Load / Save / Build
 # ---------------------------------------------------------------------------
 def _do_load(*_args):
-    global _config, _config_path, _switch_settings, _ik_controls
+    global _config, _config_path, _switch_settings
 
     result = cmds.fileDialog2(
         fileMode=1,
@@ -789,7 +991,6 @@ def _do_load(*_args):
     try:
         loaded_config = load_limbs(path)
         loaded_switch_settings = load_switch_settings(path)
-        loaded_ik_controls = load_ik_controls(path)
 
     except Exception as exc:
         error_dialog("Load Failed", exc)
@@ -798,7 +999,6 @@ def _do_load(*_args):
     _config = loaded_config
     _config_path = path
     _switch_settings = loaded_switch_settings
-    _ik_controls = loaded_ik_controls
 
     # Collapse state is tied to limb names in the previous file - stale
     # entries are harmless (just unused keys) but start clean so a
@@ -832,14 +1032,21 @@ def _do_save(save_as=False, *_args):
             path += ".json"
 
     try:
-        save_limbs(_config, path)
-        # Always write the current switch settings and real IK
-        # controls alongside the limb pairs, so the file is a
-        # complete, self-contained record that a future session (or
-        # the IK/FK tab on reload) can read from, rather than relying
-        # on the DEFAULT_SWITCH_SETTINGS fallback in ikfk_io.py.
+        save_fk_match_ik_pairs(
+            {
+                limb_name: limb_data.get("fk_match_ik", [])
+                for limb_name, limb_data in _config.items()
+            },
+            path
+        )
+        save_ik_match_fk_pairs(
+            {
+                limb_name: limb_data.get("ik_match_fk", [])
+                for limb_name, limb_data in _config.items()
+            },
+            path
+        )
         save_switch_settings(_switch_settings, path)
-        save_ik_controls(_ik_controls, path)
 
     except Exception as exc:
         error_dialog("Save Failed", exc)
@@ -898,12 +1105,15 @@ def _do_build(*_args):
             )
         )
 
-    ik_control_problems = validate_ik_controls(_config, _ik_controls)
+    ik_match_fk_problems = validate_ik_match_fk_pairs(
+        _config,
+        namespace
+    )
 
-    if ik_control_problems:
+    if ik_match_fk_problems:
         problems.append(
-            "Incomplete FK -> IK Controls:\n{0}".format(
-                "\n".join(ik_control_problems)
+            "Invalid IK Match FK Data:\n{0}".format(
+                "\n".join(ik_match_fk_problems)
             )
         )
 
@@ -927,14 +1137,13 @@ def _do_build(*_args):
         raise
 
     try:
-        fk_to_ik_config = generate_fk_to_ik_pairs(
+        generate_ik_match_fk_pairs(
             _config,
-            _ik_controls,
             namespace
         )
 
     except Exception as exc:
-        error_dialog("FK -> IK Generation Failed", exc)
+        error_dialog("IK Match FK Generation Failed", exc)
         raise
 
     # --------------------------------------------------------------
@@ -944,8 +1153,19 @@ def _do_build(*_args):
 
     if _config_path:
         try:
-            save_limbs(
-                _config,
+            save_fk_match_ik_pairs(
+                {
+                    limb_name: limb_data.get("fk_match_ik", [])
+                    for limb_name, limb_data in _config.items()
+                },
+                _config_path
+            )
+
+            save_ik_match_fk_pairs(
+                {
+                    limb_name: limb_data.get("ik_match_fk", [])
+                    for limb_name, limb_data in _config.items()
+                },
                 _config_path
             )
 
@@ -954,16 +1174,6 @@ def _do_build(*_args):
                 _config_path
             )
 
-            save_ik_controls(
-                _ik_controls,
-                _config_path
-            )
-            
-            save_fk_to_ik_limbs(
-                fk_to_ik_config,
-                _config_path
-            )
-            
             save_succeeded = True
 
             print(
@@ -1053,8 +1263,8 @@ _SNAP_FUNCTIONS = {
 }
 
 _SNAP_LABELS = {
-    "ik_to_fk": "IK -> FK",
-    "fk_to_ik": "FK -> IK",
+    "ik_to_fk": "FK match IK",
+    "fk_to_ik": "IK match FK",
 }
 
 
@@ -1371,7 +1581,6 @@ def show_ui():
     global _config
     global _config_path
     global _switch_settings
-    global _ik_controls
 
     if cmds.window(WINDOW_NAME, exists=True):
         cmds.deleteUI(WINDOW_NAME)
@@ -1379,16 +1588,14 @@ def show_ui():
     _collapsed_state.clear()
     _limb_frames.clear()
 
-    # Start with empty switch settings and real IK controls - only
-    # populate when a calibration file is loaded, not from defaults.
+    # Start with empty switch settings - only populate when a
+    # calibration file is loaded, not from defaults.
     _switch_settings.clear()
-    _ik_controls.clear()
 
     if os.path.isfile(DEFAULT_JSON_PATH):
         try:
             _config = load_limbs(DEFAULT_JSON_PATH)
             _switch_settings = load_switch_settings(DEFAULT_JSON_PATH)
-            _ik_controls = load_ik_controls(DEFAULT_JSON_PATH)
             _config_path = DEFAULT_JSON_PATH
 
         except Exception as exc:
@@ -1398,18 +1605,16 @@ def show_ui():
 
             _config = fresh_default_config()
             _switch_settings = {}  # Empty, not defaults
-            _ik_controls = {}  # Empty, not defaults
             _config_path = None
 
     else:
         _config = fresh_default_config()
         _switch_settings = {}  # Empty, not defaults
-        _ik_controls = {}  # Empty, not defaults
         _config_path = None
 
     window = cmds.window(
         WINDOW_NAME,
-        title="IK -> FK Tool",
+        title="IK / FK Tool",
         widthHeight=(650, 760),
         sizeable=True
     )

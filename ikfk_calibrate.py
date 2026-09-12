@@ -1,10 +1,10 @@
 """
 ikfk_calibrate.py
 
-Calibration-tab logic: build temporary locator pairs between an
-IK-driven control and its FK counterpart, read the rotation offset
-between them, and clean the locators up once the offset is safely
-written to the JSON config (handled by the caller, in ikfk_ui.py).
+Calibration-tab logic: build temporary locator pairs between a source
+control and its destination counterpart, read the offset between them,
+and clean the locators up once the offset is safely written to the JSON
+config (handled by the caller, in ikfk_ui.py).
 """
 import maya.cmds as cmds
 
@@ -19,201 +19,40 @@ def build_calibration_locators(
     if not namespace:
         raise ValueError("A namespace is required.")
 
-    ik_controls = config.get("ik_controls", {})
     created = []
 
     print("")
     print("=" * 60)
-    print("IK -> FK Calibration Locator Build")
+    print("Calibration Locator Build")
     print("Namespace: {0}".format(namespace))
     print("=" * 60)
 
-    for limb_name in ik_controls:
-        pairs = config.get(limb_name, [])
-
+    for limb_name, limb_data in config.items():
         print("")
         print("=== {0} ===".format(limb_name))
 
-        for index, pair in enumerate(pairs):
-            fk_name = pair.get("fk_ctrl", "").strip()
-            ik_name = pair.get("ik_ctrl", "").strip()
+        _build_pairs_for_direction(
+            limb_name=limb_name,
+            pairs=limb_data.get("fk_match_ik", []),
+            namespace=namespace,
+            rotate_order=rotate_order,
+            created=created,
+            direction_label="FK match IK",
+            destination_key="fk_ctrl",
+            source_key="source"
+        )
 
-            if not fk_name or not ik_name:
-                print(
-                    "  [SKIPPED] Pair {0}: incomplete".format(
-                        index + 1
-                    )
-                )
-                continue
-
-            fk_ctrl = ns_join(namespace, fk_name)
-            ik_ctrl = ns_join(namespace, ik_name)
-
-            con_loc = cmds.spaceLocator(
-                name="CALIB_con_" + fk_name
-            )[0]
-
-            hook_loc = cmds.spaceLocator(
-                name="CALIB_hook_" + fk_name
-            )[0]
-
-            # Set both locator rotate orders before constraining.
-            cmds.setAttr(con_loc + ".rotateOrder", rotate_order)
-            cmds.setAttr(hook_loc + ".rotateOrder", rotate_order)
-            cmds.setAttr(con_loc + ".rotateOrder", channelBox=True)
-            cmds.setAttr(hook_loc + ".rotateOrder", channelBox=True)
-
-            cmds.parent(hook_loc, con_loc)
-
-            # Snap the parent locator to the IK control.
-            cmds.parentConstraint(
-                ik_ctrl,
-                con_loc,
-                maintainOffset=False
-            )
-
-            # Snap the hook locator to the FK control.
-            cmds.parentConstraint(
-                fk_ctrl,
-                hook_loc,
-                maintainOffset=False
-            )
-
-            # Force Maya to evaluate the constrained transforms.
-            cmds.dgdirty(allPlugs=True)
-            cmds.refresh(force=True)
-
-            # Read and round the local rotation of the hook.
-            rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
-            rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
-            rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
-
-            # Store the calibration data in the configuration dictionary.
-            pair["offset"] = {
-                "rotate_order": rotate_order,
-                "rotate": {
-                    "x": rotate_x,
-                    "y": rotate_y,
-                    "z": rotate_z
-                }
-            }
-
-            created.append(
-                (
-                    limb_name,
-                    fk_name,
-                    con_loc,
-                    hook_loc,
-                    pair["offset"]
-                )
-            )
-
-            print(
-                "  [OK] Pair {0}: {1}".format(index + 1, fk_name)
-            )
-            print(
-                "       Rotate offset: "
-                "X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
-                    rotate_x, rotate_y, rotate_z
-                )
-            )
-
-        # --- Extra locator pair: parent -> pair 3's FK control, ---
-        # --- child -> the ik_controls[limb_name]["ik_ctrl"].     ---
-        extra_ik_name = ik_controls[limb_name].get("ik_ctrl", "").strip()
-
-        if not extra_ik_name:
-            print(
-                "  [SKIPPED] Extra pair: no ik_ctrl stored "
-                "for '{0}'".format(limb_name)
-            )
-        elif len(pairs) < 3:
-            print(
-                "  [SKIPPED] Extra pair: '{0}' has fewer than "
-                "3 pairs (pair 3 required as parent)".format(
-                    limb_name
-                )
-            )
-        else:
-            pair_three = pairs[2]
-            parent_fk_name = pair_three.get("fk_ctrl", "").strip()
-
-            if not parent_fk_name:
-                print(
-                    "  [SKIPPED] Extra pair: pair 3 fk_ctrl "
-                    "missing for '{0}'".format(limb_name)
-                )
-            else:
-                parent_fk_ctrl = ns_join(namespace, parent_fk_name)
-                extra_ik_ctrl = ns_join(namespace, extra_ik_name)
-
-                con_loc = cmds.spaceLocator(
-                    name="CALIB_con_extra_" + limb_name
-                )[0]
-
-                hook_loc = cmds.spaceLocator(
-                    name="CALIB_hook_extra_" + limb_name
-                )[0]
-
-                cmds.setAttr(con_loc + ".rotateOrder", rotate_order)
-                cmds.setAttr(hook_loc + ".rotateOrder", rotate_order)
-                cmds.setAttr(con_loc + ".rotateOrder", channelBox=True)
-                cmds.setAttr(hook_loc + ".rotateOrder", channelBox=True)
-
-                cmds.parent(hook_loc, con_loc)
-
-                # Parent locator snaps to pair 3's FK control.
-                cmds.parentConstraint(
-                    parent_fk_ctrl,
-                    con_loc,
-                    maintainOffset=False
-                )
-
-                # Child locator snaps to the ik_controls IK control.
-                cmds.parentConstraint(
-                    extra_ik_ctrl,
-                    hook_loc,
-                    maintainOffset=False
-                )
-
-                cmds.dgdirty(allPlugs=True)
-                cmds.refresh(force=True)
-
-                rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
-                rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
-                rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
-
-                # Store back onto the ik_controls entry itself.
-                ik_controls[limb_name]["offset"] = {
-                    "rotate_order": rotate_order,
-                    "rotate": {
-                        "x": rotate_x,
-                        "y": rotate_y,
-                        "z": rotate_z
-                    }
-                }
-
-                created.append(
-                    (
-                        limb_name,
-                        extra_ik_name,
-                        con_loc,
-                        hook_loc,
-                        ik_controls[limb_name]["offset"]
-                    )
-                )
-
-                print(
-                    "  [OK] Extra pair: parent={0}, ik={1}".format(
-                        parent_fk_name, extra_ik_name
-                    )
-                )
-                print(
-                    "       Rotate offset: "
-                    "X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
-                        rotate_x, rotate_y, rotate_z
-                    )
-                )
+        _build_pairs_for_direction(
+            limb_name=limb_name,
+            pairs=limb_data.get("ik_match_fk", []),
+            namespace=namespace,
+            rotate_order=rotate_order,
+            created=created,
+            direction_label="IK match FK",
+            destination_key="ik_ctrl",
+            source_key="source",
+            skip_types=("pole_vector",)
+        )
 
     print("")
     print("=" * 60)
@@ -226,6 +65,132 @@ def build_calibration_locators(
     print("")
 
     return created
+
+
+def _build_pairs_for_direction(
+        limb_name,
+        pairs,
+        namespace,
+        rotate_order,
+        created,
+        direction_label,
+        destination_key,
+        source_key,
+        skip_types=()):
+
+    if not isinstance(pairs, list):
+        print("  [SKIPPED] {0}: pair list is invalid".format(direction_label))
+        return
+
+    print("  --- {0} ---".format(direction_label))
+
+    for index, pair in enumerate(pairs):
+        if not isinstance(pair, dict):
+            print("  [SKIPPED] Pair {0}: pair data is invalid".format(index + 1))
+            continue
+
+        if pair.get("type") in skip_types:
+            print(
+                "  [SKIPPED] Pair {0}: {1} pairs are solved live".format(
+                    index + 1,
+                    pair.get("type")
+                )
+            )
+            continue
+
+        destination_name = pair.get(destination_key, "").strip()
+        source_name = pair.get(source_key, "").strip()
+
+        if not destination_name or not source_name:
+            print("  [SKIPPED] Pair {0}: incomplete".format(index + 1))
+            continue
+
+        _create_calibration_pair(
+            limb_name=limb_name,
+            pair_index=index + 1,
+            destination_name=destination_name,
+            source_name=source_name,
+            source_ctrl=ns_join(namespace, source_name),
+            destination_ctrl=ns_join(namespace, destination_name),
+            pair=pair,
+            rotate_order=rotate_order,
+            created=created
+        )
+
+
+def _create_calibration_pair(
+        limb_name,
+        pair_index,
+        destination_name,
+        source_name,
+        source_ctrl,
+        destination_ctrl,
+        pair,
+        rotate_order,
+        created):
+    con_loc = cmds.spaceLocator(
+        name="CALIB_con_" + destination_name
+    )[0]
+
+    hook_loc = cmds.spaceLocator(
+        name="CALIB_hook_" + destination_name
+    )[0]
+
+    cmds.setAttr(con_loc + ".rotateOrder", rotate_order)
+    cmds.setAttr(hook_loc + ".rotateOrder", rotate_order)
+    cmds.setAttr(con_loc + ".rotateOrder", channelBox=True)
+    cmds.setAttr(hook_loc + ".rotateOrder", channelBox=True)
+
+    cmds.parent(hook_loc, con_loc)
+
+    cmds.parentConstraint(
+        source_ctrl,
+        con_loc,
+        maintainOffset=False
+    )
+
+    cmds.parentConstraint(
+        destination_ctrl,
+        hook_loc,
+        maintainOffset=False
+    )
+
+    cmds.dgdirty(allPlugs=True)
+    cmds.refresh(force=True)
+
+    rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
+    rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
+    rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
+
+    pair["offset"] = {
+        "rotate_order": rotate_order,
+        "rotate": {
+            "x": rotate_x,
+            "y": rotate_y,
+            "z": rotate_z
+        }
+    }
+
+    created.append(
+        (
+            limb_name,
+            destination_name,
+            con_loc,
+            hook_loc,
+            pair["offset"]
+        )
+    )
+
+    print("  [OK] Pair {0}: {1}".format(pair_index, destination_name))
+    print("       Source: {0}".format(source_name))
+    print(
+        "       Rotate offset: "
+        "X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
+            rotate_x,
+            rotate_y,
+            rotate_z
+        )
+    )
 
 
 def delete_calibration_locators(created):
@@ -247,284 +212,363 @@ def delete_calibration_locators(created):
     return deleted
 
 
-def validate_calibration_pairs(limbs, namespace):
+def _validate_pair_list(
+        pairs,
+        namespace,
+        limb_name,
+        destination_key,
+        source_key):
     missing = []
     incomplete = []
 
-    for limb_name, pairs in limbs.items():
-        for index, pair in enumerate(pairs):
-            fk_name = pair.get("fk_ctrl", "").strip()
-            ik_name = pair.get("ik_ctrl", "").strip()
+    for index, pair in enumerate(pairs):
+        if not isinstance(pair, dict):
+            incomplete.append("{0} - Pair {1}".format(limb_name, index + 1))
+            continue
 
-            if not fk_name or not ik_name:
-                incomplete.append(
-                    "{0} - Pair {1}".format(limb_name, index + 1)
-                )
-                continue
+        destination_name = pair.get(destination_key, "").strip()
+        source_name = pair.get(source_key, "").strip()
 
-            fk_ctrl = ns_join(namespace, fk_name)
-            ik_ctrl = ns_join(namespace, ik_name)
+        if not destination_name or not source_name:
+            incomplete.append("{0} - Pair {1}".format(limb_name, index + 1))
+            continue
 
-            if not cmds.objExists(fk_ctrl):
-                missing.append(
-                    "FK Control: {0}".format(fk_ctrl)
-                )
+        destination_node = ns_join(namespace, destination_name)
+        source_node = ns_join(namespace, source_name)
 
-            if not cmds.objExists(ik_ctrl):
-                missing.append(
-                    "IK Control: {0}".format(ik_ctrl)
-                )
+        if not cmds.objExists(destination_node):
+            missing.append(
+                "{0}: {1}".format(destination_key, destination_node)
+            )
+
+        if not cmds.objExists(source_node):
+            missing.append(
+                "{0}: {1}".format(source_key, source_node)
+            )
 
     return incomplete, missing
 
 
-def validate_ik_controls(limbs, ik_controls):
-    """
-    Check that every limb in `limbs` has a complete _ik_controls entry
-    (both ik_ctrl and pole_ctrl filled in) before FK -> IK pairs can
-    be generated. Returns a list of human-readable problem strings,
-    empty if everything is complete.
-    """
+def validate_calibration_pairs(limbs, namespace):
     incomplete = []
+    missing = []
 
-    for limb_name in limbs:
-        entry = ik_controls.get(limb_name, {})
-        ik_ctrl = entry.get("ik_ctrl", "").strip()
-        pole_ctrl = entry.get("pole_ctrl", "").strip()
+    for limb_name, limb_data in limbs.items():
+        limb_incomplete, limb_missing = _validate_pair_list(
+            pairs=limb_data.get("fk_match_ik", []),
+            namespace=namespace,
+            limb_name=limb_name,
+            destination_key="fk_ctrl",
+            source_key="source"
+        )
+        incomplete.extend(limb_incomplete)
+        missing.extend(limb_missing)
 
-        if not ik_ctrl or not pole_ctrl:
-            missing_parts = []
-            if not ik_ctrl:
-                missing_parts.append("IK Control")
-            if not pole_ctrl:
-                missing_parts.append("Pole Vector Control")
+    return incomplete, missing
 
-            incomplete.append(
-                "{0} - missing {1}".format(
-                    limb_name, " and ".join(missing_parts)
+
+def _find_generated_ik_match_fk_pair(pairs, role, pair_type):
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            continue
+
+        if pair.get("role") == role and pair.get("type", "offset") == pair_type:
+            return pair
+
+    return None
+
+
+def validate_ik_match_fk_pairs(limbs, namespace):
+    problems = []
+
+    for limb_name, limb_data in limbs.items():
+        pairs = limb_data.get("ik_match_fk", [])
+
+        if not isinstance(pairs, list):
+            problems.append(
+                "{0} - IK match FK pairs must be a list".format(limb_name)
+            )
+            continue
+
+        handle_pair = _find_generated_ik_match_fk_pair(
+            pairs,
+            role="ik_handle",
+            pair_type="offset"
+        )
+        pole_pair = _find_generated_ik_match_fk_pair(
+            pairs,
+            role="pole_vector",
+            pair_type="pole_vector"
+        )
+
+        if not handle_pair or not handle_pair.get("ik_ctrl", "").strip():
+            problems.append(
+                "{0} - missing IK Handle Control".format(limb_name)
+            )
+        else:
+            ik_handle = ns_join(namespace, handle_pair["ik_ctrl"].strip())
+            if not cmds.objExists(ik_handle):
+                problems.append(
+                    "{0} - IK Handle Control missing: {1}".format(
+                        limb_name,
+                        ik_handle
+                    )
+                )
+
+        if not pole_pair or not pole_pair.get("ik_ctrl", "").strip():
+            problems.append(
+                "{0} - missing Pole Vector Control".format(limb_name)
+            )
+        else:
+            pole_ctrl = ns_join(namespace, pole_pair["ik_ctrl"].strip())
+            if not cmds.objExists(pole_ctrl):
+                problems.append(
+                    "{0} - Pole Vector Control missing: {1}".format(
+                        limb_name,
+                        pole_ctrl
+                    )
+                )
+
+        for index, pair in enumerate(pairs):
+            if not isinstance(pair, dict):
+                problems.append(
+                    "{0} - IK match FK Pair {1} is invalid".format(
+                        limb_name,
+                        index + 1
+                    )
+                )
+                continue
+
+            if pair.get("type") == "pole_vector" or pair.get("role") == "ik_handle":
+                continue
+
+            ik_name = pair.get("ik_ctrl", "").strip()
+            source_name = pair.get("source", "").strip()
+
+            if not ik_name or not source_name:
+                problems.append(
+                    "{0} - IK match FK Pair {1} is incomplete".format(
+                        limb_name,
+                        index + 1
+                    )
+                )
+                continue
+
+            ik_ctrl = ns_join(namespace, ik_name)
+            source_ctrl = ns_join(namespace, source_name)
+
+            if not cmds.objExists(ik_ctrl):
+                problems.append(
+                    "{0} - IK match FK Pair {1} missing ik_ctrl: {2}".format(
+                        limb_name,
+                        index + 1,
+                        ik_ctrl
+                    )
+                )
+
+            if not cmds.objExists(source_ctrl):
+                problems.append(
+                    "{0} - IK match FK Pair {1} missing source: {2}".format(
+                        limb_name,
+                        index + 1,
+                        source_ctrl
+                    )
+                )
+
+    return problems
+
+
+def _measure_ik_handle_offset(source_ctrl, ik_ctrl, rotate_order):
+    rotate_x = 0
+    rotate_y = 0
+    rotate_z = 0
+    con_loc = None
+
+    try:
+        con_loc = cmds.spaceLocator(
+            name="TMP_measure_con"
+        )[0]
+
+        hook_loc = cmds.spaceLocator(
+            name="TMP_measure_hook"
+        )[0]
+
+        cmds.setAttr(con_loc + ".rotateOrder", rotate_order)
+        cmds.setAttr(hook_loc + ".rotateOrder", rotate_order)
+        cmds.parent(hook_loc, con_loc)
+
+        cmds.parentConstraint(
+            ik_ctrl,
+            con_loc,
+            maintainOffset=False
+        )
+
+        cmds.parentConstraint(
+            source_ctrl,
+            hook_loc,
+            maintainOffset=False
+        )
+
+        cmds.dgdirty(allPlugs=True)
+        cmds.refresh(force=True)
+
+        rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
+        rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
+        rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
+
+    finally:
+        if con_loc and cmds.objExists(con_loc):
+            cmds.delete(con_loc)
+
+    return rotate_x, rotate_y, rotate_z
+
+
+def generate_ik_match_fk_pairs(
+        limbs,
+        namespace,
+        rotate_order=HOOK_ROTATE_ORDER):
+
+    """
+    Generate per-limb IK match FK data from the FK match IK pair list.
+
+    For each limb:
+    - exactly three FK match IK pairs must be marked use_for_pole_vector
+    - the first/second/third marked FK controls become shoulder/elbow/wrist
+    - the generated IK handle pair uses the last marked FK control as its
+      source
+    - the generated pole-vector pair uses the stored pole-vector control
+      and the three marked FK controls
+
+    Existing manual IK match FK offset pairs are preserved.
+    """
+    generated = {}
+
+    print("")
+    print("=" * 60)
+    print("Generating IK Match FK Pairs")
+    print("=" * 60)
+
+    for limb_name, limb_data in limbs.items():
+        fk_match_ik_pairs = limb_data.get("fk_match_ik", [])
+        ik_match_fk_pairs = limb_data.get("ik_match_fk", [])
+
+        handle_pair = _find_generated_ik_match_fk_pair(
+            ik_match_fk_pairs,
+            role="ik_handle",
+            pair_type="offset"
+        )
+        pole_pair = _find_generated_ik_match_fk_pair(
+            ik_match_fk_pairs,
+            role="pole_vector",
+            pair_type="pole_vector"
+        )
+
+        if not handle_pair or not handle_pair.get("ik_ctrl", "").strip():
+            raise ValueError(
+                "{0}: set an IK Handle Control before building.".format(
+                    limb_name
                 )
             )
 
-    return incomplete
+        if not pole_pair or not pole_pair.get("ik_ctrl", "").strip():
+            raise ValueError(
+                "{0}: set a Pole Vector Control before building.".format(
+                    limb_name
+                )
+            )
 
+        pv_pairs = [
+            pair for pair in fk_match_ik_pairs
+            if isinstance(pair, dict) and pair.get("use_for_pole_vector")
+        ]
 
-def generate_fk_to_ik_pairs(limbs, ik_controls, namespace, rotate_order=HOOK_ROTATE_ORDER):
+        if len(pv_pairs) != 3:
+            raise ValueError(
+                "{0}: exactly 3 FK match IK pairs must be marked PV; "
+                "found {1}.".format(limb_name, len(pv_pairs))
+            )
 
-    """
-    Generate FK -> IK pair definitions from IK -> FK limb pairs.
-    
-    For each limb, creates three pair types:
-    1. Hip/root (offset) - self-match with zero offset
-    2. Pole vector - solved live from first/second/third FK controls
-    3. Ankle/end (offset) - measured rotation offset between FK and IK
-    
-    ik_controls is the _ik_controls dict from the UI (per-limb real
-    "ik_ctrl"/"pole_ctrl" values) - the real IK handle and pole
-    vector control to write into the generated pairs, rather than
-    guessing the pole name from limb_name or reusing the IK -> FK
-    joint name.
-    
-    Returns a dict keyed by limb_name with generated pair lists.
-    """
-    fk_to_ik_limbs = {}
-    
-    print("")
-    print("=" * 60)
-    print("Generating FK -> IK Pair Definitions")
-    print("=" * 60)
-    
-    for limb_name, pairs in limbs.items():
-        if not pairs or len(pairs) < 2:
-            print("")
-            print("  [SKIPPED] {0}: requires at least 2 IK->FK pairs (hip, mid, end)".format(
-                limb_name
-            ))
-            continue
-        
-        print("")
-        print("=== {0} ===".format(limb_name))
-        
-        fk_to_ik_limbs[limb_name] = []
-        
-        # First pair: hip/root (self-match, zero offset)
-        hip_pair = pairs[0]
-        hip_fk = hip_pair.get("fk_ctrl", "").strip()
-        
-        if hip_fk:
-            fk_to_ik_limbs[limb_name].append({
+        shoulder_fk = pv_pairs[0].get("fk_ctrl", "").strip()
+        elbow_fk = pv_pairs[1].get("fk_ctrl", "").strip()
+        wrist_fk = pv_pairs[2].get("fk_ctrl", "").strip()
+
+        if not shoulder_fk or not elbow_fk or not wrist_fk:
+            raise ValueError(
+                "{0}: all 3 PV-marked pairs need FK controls.".format(
+                    limb_name
+                )
+            )
+
+        rotate_x, rotate_y, rotate_z = _measure_ik_handle_offset(
+            source_ctrl=ns_join(namespace, wrist_fk),
+            ik_ctrl=ns_join(namespace, handle_pair["ik_ctrl"].strip()),
+            rotate_order=rotate_order
+        )
+
+        manual_offset_pairs = [
+            dict(pair) for pair in ik_match_fk_pairs
+            if isinstance(pair, dict)
+            and pair.get("type", "offset") == "offset"
+            and pair.get("role") != "ik_handle"
+        ]
+
+        generated_pairs = manual_offset_pairs + [
+            {
                 "type": "offset",
-                "fk_ctrl": hip_fk,
-                "ik_ctrl": hip_fk,
+                "role": "ik_handle",
+                "ik_ctrl": handle_pair["ik_ctrl"].strip(),
+                "source": wrist_fk,
                 "offset": {
                     "rotate_order": rotate_order,
                     "translate": {"x": 0, "y": 0, "z": 0},
-                    "rotate": {"x": 0, "y": 0, "z": 0},
-                },
-            })
-            print("  [OK] Hip/root (self-match, zero offset): {0}".format(hip_fk))
-        
-        # Middle pair: pole vector (solved live from hip/mid/end)
-        if len(pairs) >= 3:
-            hip_fk = pairs[-3].get("fk_ctrl", "").strip()
-            mid_fk = pairs[-2].get("fk_ctrl", "").strip()
-            end_fk = pairs[-1].get("fk_ctrl", "").strip()            
-            if hip_fk and mid_fk and end_fk:
-                ik_pole = ik_controls.get(limb_name, {}).get("pole_ctrl", "").strip()
-
-                if not ik_pole:
-                    print(
-                        "  [SKIPPED] Pole vector: no Pole Vector "
-                        "Control set for {0}".format(limb_name)
-                    )
-                else:
-                    fk_to_ik_limbs[limb_name].append({
-                        "type": "pole_vector",
-                        "shoulder_ctrl": hip_fk,
-                        "elbow_ctrl": mid_fk,
-                        "wrist_ctrl": end_fk,
-                        "ik_ctrl": ik_pole,
-                    })
-                    print("  [OK] Pole vector (solved live): {0}".format(ik_pole))
-
-        # Last pair: end effector (ankle/wrist) with measured rotation offset
-        if len(pairs) >= 2:
-            end_fk = pairs[-1].get("fk_ctrl", "").strip()
-            end_ik_name = ik_controls.get(
-                limb_name, {}
-            ).get("ik_ctrl", "").strip()
-
-            if not end_fk:
-                print(
-                    "  [SKIPPED] End effector: no FK Control set "
-                    "for {0}".format(limb_name)
-                )
-                continue
-
-            if not end_ik_name:
-                print(
-                    "  [SKIPPED] End effector: no IK Control set "
-                    "for {0}".format(limb_name)
-                )
-                continue
-
-            # The real FK end control and real IK handle control.
-            fk_ctrl = ns_join(namespace, end_fk)
-            ik_ctrl = ns_join(namespace, end_ik_name)
-
-            rotate_x = 0
-            rotate_y = 0
-            rotate_z = 0
-
-            try:
-                # Create temporary locators to measure the offset.
-                con_loc = cmds.spaceLocator(
-                    name="TMP_measure_con"
-                )[0]
-
-                hook_loc = cmds.spaceLocator(
-                    name="TMP_measure_hook"
-                )[0]
-
-                cmds.setAttr(
-                    con_loc + ".rotateOrder",
-                    rotate_order
-                )
-
-                cmds.setAttr(
-                    hook_loc + ".rotateOrder",
-                    rotate_order
-                )
-
-                cmds.parent(
-                    hook_loc,
-                    con_loc
-                )
-
-                # Snap to IK, then hook to FK.
-                cmds.parentConstraint(
-                    ik_ctrl,
-                    con_loc,
-                    maintainOffset=False
-                )
-
-                cmds.parentConstraint(
-                    fk_ctrl,
-                    hook_loc,
-                    maintainOffset=False
-                )
-
-                cmds.dgdirty(allPlugs=True)
-                cmds.refresh(force=True)
-
-                # Read the offset.
-                rotate_x = round(
-                    cmds.getAttr(hook_loc + ".rotateX"),
-                    3
-                )
-
-                rotate_y = round(
-                    cmds.getAttr(hook_loc + ".rotateY"),
-                    3
-                )
-
-                rotate_z = round(
-                    cmds.getAttr(hook_loc + ".rotateZ"),
-                    3
-                )
-
-                cmds.delete(con_loc)
-
-            except Exception as exc:
-                print(
-                    "  [WARNING] Could not measure IK rotation "
-                    "offset: {0}".format(exc)
-                )
-
-            fk_to_ik_limbs[limb_name].append({
-                "type": "offset",
-                "fk_ctrl": end_fk,
-                "ik_ctrl": end_ik_name,
-                "offset": {
-                    "rotate_order": rotate_order,
-                    "translate": {
-                        "x": 0,
-                        "y": 0,
-                        "z": 0
-                    },
                     "rotate": {
                         "x": rotate_x,
                         "y": rotate_y,
-                        "z": rotate_z
-                    }
-                }
-            })
+                        "z": rotate_z,
+                    },
+                },
+            },
+            {
+                "type": "pole_vector",
+                "role": "pole_vector",
+                "shoulder_ctrl": shoulder_fk,
+                "elbow_ctrl": elbow_fk,
+                "wrist_ctrl": wrist_fk,
+                "ik_ctrl": pole_pair["ik_ctrl"].strip(),
+            },
+        ]
 
-            print(
-                "  [OK] End effector (measured offset): {0}".format(
-                    end_fk
-                )
+        limb_data["ik_match_fk"] = generated_pairs
+        generated[limb_name] = generated_pairs
+
+        print("")
+        print("=== {0} ===".format(limb_name))
+        print(
+            "  [OK] IK handle: {0} <- {1}".format(
+                handle_pair["ik_ctrl"].strip(),
+                wrist_fk
             )
-
-            print(
-                "       IK Control: {0}".format(
-                    end_ik_name
-                )
+        )
+        print(
+            "       Rotation offset: X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
+                rotate_x,
+                rotate_y,
+                rotate_z
             )
+        )
+        print(
+            "  [OK] Pole vector: {0} from {1} / {2} / {3}".format(
+                pole_pair["ik_ctrl"].strip(),
+                shoulder_fk,
+                elbow_fk,
+                wrist_fk
+            )
+        )
 
-            print(
-                "       Rotation offset: "
-                "X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
-                    rotate_x,
-                    rotate_y,
-                    rotate_z
-                )
-            )     
-
-    
     print("")
     print("=" * 60)
-    print("Generated {0} limbs".format(len(fk_to_ik_limbs)))
+    print("Generated {0} limbs".format(len(generated)))
     print("=" * 60)
     print("")
-    
-    return fk_to_ik_limbs
+
+    return generated
