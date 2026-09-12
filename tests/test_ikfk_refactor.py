@@ -146,6 +146,52 @@ class LoadLimbsMigrationTests(unittest.TestCase):
         self.assertEqual(1, len(extra_pairs))
         self.assertNotEqual("ik_handle", extra_pairs[0].get("role"))
 
+    def test_load_limbs_dedupes_legacy_pole_vector_entries(self):
+        legacy_data = {
+            "L_arm": [
+                {"fk_ctrl": "L_arm_fk_000_CTRL", "ik_ctrl": "L_arm000_JNT"},
+                {"fk_ctrl": "L_arm_fk_001_CTRL", "ik_ctrl": "L_arm001_JNT"},
+                {"fk_ctrl": "L_arm_fk_002_CTRL", "ik_ctrl": "L_arm002_JNT"},
+            ],
+            "fk_to_ik": {
+                "L_arm": [
+                    {
+                        "type": "offset",
+                        "fk_ctrl": "L_arm_fk_002_CTRL",
+                        "ik_ctrl": "L_arm_ik_CTRL",
+                    },
+                    {
+                        "ik_ctrl": "L_arm_ik_pole_CTRL",
+                        "role": "pole_vector",
+                        "shoulder_ctrl": "L_arm_fk_000_CTRL",
+                        "elbow_ctrl": "L_arm_fk_001_CTRL",
+                        "wrist_ctrl": "L_arm_fk_002_CTRL",
+                    },
+                ]
+            },
+            "ik_controls": {
+                "L_arm": {
+                    "ik_ctrl": "L_arm_ik_CTRL",
+                    "pole_ctrl": "L_arm_ik_pole_CTRL",
+                }
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "legacy-pole.json")
+            with open(path, "w") as handle:
+                json.dump(legacy_data, handle)
+
+            limbs = ikfk_io.load_limbs(path)
+
+        pole_pairs = [
+            pair for pair in limbs["L_arm"]["ik_match_fk"]
+            if pair.get("role") == "pole_vector"
+        ]
+
+        self.assertEqual(1, len(pole_pairs))
+        self.assertEqual("L_arm_ik_pole_CTRL", pole_pairs[0]["ik_ctrl"])
+
     def test_save_helpers_write_nested_structure(self):
         fk_match_ik = {
             "L_arm": [
