@@ -636,8 +636,13 @@ def load_fk_match_ik_pairs(path):
 
 
 def save_fk_match_ik_pairs(fk_match_ik_pairs, path):
-    """Write only the FK match IK lists into the nested limb structure,
-    preserving each limb's IK match FK data and top-level switch settings."""
+    """Merge FK match IK lists for the supplied limbs into the nested
+    limb structure, preserving any other limbs already on disk plus each
+    limb's IK match FK data and top-level switch settings.
+
+    This is intentionally a partial-update helper. Call save_limbs() when
+    the current in-memory limb set should replace the saved limb set
+    entirely (for example, from the main UI Save action)."""
     current = load_limbs(path) if os.path.isfile(path) else {}
 
     for limb_name, pairs in fk_match_ik_pairs.items():
@@ -658,8 +663,13 @@ def load_ik_match_fk_pairs(path):
 
 
 def save_ik_match_fk_pairs(ik_match_fk_pairs, path):
-    """Write only the IK match FK lists into the nested limb structure,
-    preserving each limb's FK match IK data and top-level switch settings."""
+    """Merge IK match FK lists for the supplied limbs into the nested
+    limb structure, preserving any other limbs already on disk plus each
+    limb's FK match IK data and top-level switch settings.
+
+    This is intentionally a partial-update helper. Call save_limbs() when
+    the current in-memory limb set should replace the saved limb set
+    entirely (for example, from the main UI Save action)."""
     current = load_limbs(path) if os.path.isfile(path) else {}
 
     for limb_name, pairs in ik_match_fk_pairs.items():
