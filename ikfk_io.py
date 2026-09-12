@@ -322,6 +322,25 @@ def _migrate_legacy_ik_controls(ik_match_fk_pairs, ik_controls_entry):
 
     _ensure_generated_ik_match_fk_entries(ik_match_fk_pairs)
 
+    legacy_ik_ctrl = ik_controls_entry.get("ik_ctrl", "")
+    legacy_pole_ctrl = ik_controls_entry.get("pole_ctrl", "")
+
+    for pair in ik_match_fk_pairs:
+        if not isinstance(pair, dict):
+            continue
+
+        if (
+                legacy_ik_ctrl and
+                pair.get("type", "offset") == "offset" and
+                pair.get("ik_ctrl", "") == legacy_ik_ctrl):
+            pair["role"] = "ik_handle"
+
+        if (
+                legacy_pole_ctrl and
+                pair.get("type") == "pole_vector" and
+                pair.get("ik_ctrl", "") == legacy_pole_ctrl):
+            pair["role"] = "pole_vector"
+
     handle_pair = None
     pole_pair = None
 
@@ -336,10 +355,73 @@ def _migrate_legacy_ik_controls(ik_match_fk_pairs, ik_controls_entry):
             pole_pair = pair
 
     if handle_pair and not handle_pair.get("ik_ctrl"):
-        handle_pair["ik_ctrl"] = ik_controls_entry.get("ik_ctrl", "")
+        handle_pair["ik_ctrl"] = legacy_ik_ctrl
 
     if pole_pair and not pole_pair.get("ik_ctrl"):
-        pole_pair["ik_ctrl"] = ik_controls_entry.get("pole_ctrl", "")
+        pole_pair["ik_ctrl"] = legacy_pole_ctrl
+
+    _dedupe_generated_pair(
+        ik_match_fk_pairs,
+        role="ik_handle",
+        pair_type="offset",
+        preferred_ctrl=legacy_ik_ctrl
+    )
+    _dedupe_generated_pair(
+        ik_match_fk_pairs,
+        role="pole_vector",
+        pair_type="pole_vector",
+        preferred_ctrl=legacy_pole_ctrl
+    )
+
+
+def _dedupe_generated_pair(pairs, role, pair_type, preferred_ctrl):
+    matches = [
+        pair for pair in pairs
+        if isinstance(pair, dict)
+        and pair.get("role") == role
+        and pair.get("type", "offset") == pair_type
+    ]
+
+    if len(matches) <= 1:
+        return
+
+    preferred_pair = None
+
+    if preferred_ctrl:
+        for pair in matches:
+            if pair.get("ik_ctrl", "") == preferred_ctrl:
+                preferred_pair = pair
+                break
+
+    if preferred_pair is None:
+        for pair in matches:
+            if any(
+                    pair.get(key)
+                    for key in ("ik_ctrl", "source", "shoulder_ctrl", "elbow_ctrl", "wrist_ctrl", "offset")):
+                preferred_pair = pair
+                break
+
+    if preferred_pair is None:
+        preferred_pair = matches[0]
+
+    kept = False
+    cleaned = []
+
+    for pair in pairs:
+        if pair is preferred_pair and not kept:
+            cleaned.append(pair)
+            kept = True
+            continue
+
+        if (
+                isinstance(pair, dict)
+                and pair.get("role") == role
+                and pair.get("type", "offset") == pair_type):
+            continue
+
+        cleaned.append(pair)
+
+    pairs[:] = cleaned
 
 
 def _normalize_ik_match_fk_pairs(pairs):
@@ -359,23 +441,6 @@ def _normalize_ik_match_fk_pairs(pairs):
             )
 
         normalized.append(migrated_pair)
-
-    offset_pairs = [
-        pair for pair in normalized
-        if isinstance(pair, dict) and pair.get("type", "offset") == "offset"
-    ]
-    pole_pairs = [
-        pair for pair in normalized
-        if isinstance(pair, dict) and pair.get("type") == "pole_vector"
-    ]
-
-    if offset_pairs and not any(
-            pair.get("role") == "ik_handle" for pair in offset_pairs):
-        offset_pairs[-1]["role"] = "ik_handle"
-
-    if pole_pairs and not any(
-            pair.get("role") == "pole_vector" for pair in pole_pairs):
-        pole_pairs[0]["role"] = "pole_vector"
 
     _ensure_generated_ik_match_fk_entries(normalized)
 

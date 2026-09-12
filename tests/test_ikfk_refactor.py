@@ -85,6 +85,67 @@ class LoadLimbsMigrationTests(unittest.TestCase):
             pole_pairs[0]["ik_ctrl"]
         )
 
+    def test_load_limbs_prefers_legacy_ik_control_match_for_handle_role(self):
+        legacy_data = {
+            "L_arm": [
+                {"fk_ctrl": "L_arm_fk_000_CTRL", "ik_ctrl": "L_arm000_JNT"},
+                {"fk_ctrl": "L_arm_fk_001_CTRL", "ik_ctrl": "L_arm001_JNT"},
+                {"fk_ctrl": "L_arm_fk_002_CTRL", "ik_ctrl": "L_arm002_JNT"},
+            ],
+            "fk_to_ik": {
+                "L_arm": [
+                    {
+                        "type": "offset",
+                        "fk_ctrl": "L_arm_fk_002_CTRL",
+                        "ik_ctrl": "L_arm_ik_CTRL",
+                        "offset": {
+                            "rotate_order": 2,
+                            "translate": {"x": 0, "y": 0, "z": 0},
+                            "rotate": {"x": 0, "y": -90, "z": 0},
+                        },
+                    },
+                    {
+                        "type": "offset",
+                        "ik_ctrl": "L_arm_extra_ik_CTRL",
+                        "source": "L_arm_extra_fk_CTRL",
+                        "offset": {
+                            "rotate_order": 2,
+                            "translate": {"x": 1, "y": 2, "z": 3},
+                            "rotate": {"x": 4, "y": 5, "z": 6},
+                        },
+                    },
+                ]
+            },
+            "ik_controls": {
+                "L_arm": {
+                    "ik_ctrl": "L_arm_ik_CTRL",
+                    "pole_ctrl": "L_arm_ik_pole_CTRL",
+                }
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "legacy-extra.json")
+            with open(path, "w") as handle:
+                json.dump(legacy_data, handle)
+
+            limbs = ikfk_io.load_limbs(path)
+
+        ik_match_fk = limbs["L_arm"]["ik_match_fk"]
+        handle_pairs = [
+            pair for pair in ik_match_fk
+            if pair.get("role") == "ik_handle"
+        ]
+        extra_pairs = [
+            pair for pair in ik_match_fk
+            if pair.get("ik_ctrl") == "L_arm_extra_ik_CTRL"
+        ]
+
+        self.assertEqual(1, len(handle_pairs))
+        self.assertEqual("L_arm_ik_CTRL", handle_pairs[0]["ik_ctrl"])
+        self.assertEqual(1, len(extra_pairs))
+        self.assertNotEqual("ik_handle", extra_pairs[0].get("role"))
+
     def test_save_helpers_write_nested_structure(self):
         fk_match_ik = {
             "L_arm": [

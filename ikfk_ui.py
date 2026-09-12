@@ -1159,6 +1159,10 @@ def _do_build(*_args):
             else:
                 merged_pairs.append(generated_pair)
 
+        for pair_key, existing_pair in existing_by_role.items():
+            if pair_key not in generated_by_role:
+                merged_pairs.append(existing_pair)
+
         _config[limb_name]["ik_match_fk"] = merged_pairs
 
     # --------------------------------------------------------------
