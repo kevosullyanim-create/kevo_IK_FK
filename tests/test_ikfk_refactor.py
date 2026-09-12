@@ -129,6 +129,16 @@ class LoadLimbsMigrationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             path = os.path.join(temp_dir, "nested.json")
+            with open(path, "w") as handle:
+                json.dump(
+                    {
+                        "R_arm": {
+                            "fk_match_ik": [{"fk_ctrl": "stale_fk", "source": "stale_jnt"}],
+                            "ik_match_fk": [{"type": "offset", "ik_ctrl": "stale_ik", "source": "stale_fk"}],
+                        }
+                    },
+                    handle
+                )
             ikfk_io.save_fk_match_ik_pairs(fk_match_ik, path)
             ikfk_io.save_ik_match_fk_pairs(ik_match_fk, path)
             ikfk_io.save_switch_settings(switch_settings, path)
@@ -140,6 +150,7 @@ class LoadLimbsMigrationTests(unittest.TestCase):
 
         self.assertIn("L_arm", raw_data)
         self.assertIn("switch_settings", raw_data)
+        self.assertNotIn("R_arm", raw_data)
         self.assertNotIn("fk_to_ik", raw_data)
         self.assertNotIn("ik_controls", raw_data)
         self.assertEqual(

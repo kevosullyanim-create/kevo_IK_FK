@@ -1147,7 +1147,37 @@ def _do_build(*_args):
         raise
 
     for limb_name, pairs in generated_ik_match_fk.items():
-        _ensure_limb_data(limb_name)["ik_match_fk"] = pairs
+        existing_pairs = _ensure_limb_data(limb_name)["ik_match_fk"]
+        generated_by_role = {
+            (pair.get("role"), pair.get("type", "offset")): pair
+            for pair in pairs
+            if isinstance(pair, dict) and pair.get("role")
+        }
+
+        merged_pairs = []
+        seen_roles = set()
+
+        for pair in existing_pairs:
+            if not isinstance(pair, dict):
+                merged_pairs.append(pair)
+                continue
+
+            pair_key = (pair.get("role"), pair.get("type", "offset"))
+
+            if pair_key in generated_by_role:
+                merged_pair = dict(pair)
+                merged_pair.update(generated_by_role[pair_key])
+                merged_pairs.append(merged_pair)
+                seen_roles.add(pair_key)
+                continue
+
+            merged_pairs.append(pair)
+
+        for pair_key, pair in generated_by_role.items():
+            if pair_key not in seen_roles:
+                merged_pairs.append(pair)
+
+        _config[limb_name]["ik_match_fk"] = merged_pairs
 
     # --------------------------------------------------------------
     # Save the updated configuration, including offset_rotate values
