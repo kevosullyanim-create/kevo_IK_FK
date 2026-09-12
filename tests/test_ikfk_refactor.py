@@ -150,7 +150,7 @@ class LoadLimbsMigrationTests(unittest.TestCase):
 
         self.assertIn("L_arm", raw_data)
         self.assertIn("switch_settings", raw_data)
-        self.assertNotIn("R_arm", raw_data)
+        self.assertIn("R_arm", raw_data)
         self.assertNotIn("fk_to_ik", raw_data)
         self.assertNotIn("ik_controls", raw_data)
         self.assertEqual(
@@ -161,6 +161,45 @@ class LoadLimbsMigrationTests(unittest.TestCase):
             "L_arm_ik_CTRL",
             loaded["L_arm"]["ik_match_fk"][0]["ik_ctrl"]
         )
+
+    def test_save_limbs_writes_complete_current_limb_set(self):
+        limbs = {
+            "L_arm": {
+                "fk_match_ik": [
+                    {
+                        "fk_ctrl": "L_arm_fk_000_CTRL",
+                        "source": "L_arm000_JNT",
+                        "use_for_pole_vector": True,
+                    }
+                ],
+                "ik_match_fk": [
+                    {
+                        "type": "offset",
+                        "role": "ik_handle",
+                        "ik_ctrl": "L_arm_ik_CTRL",
+                        "source": "L_arm_fk_002_CTRL",
+                    },
+                    {
+                        "type": "pole_vector",
+                        "role": "pole_vector",
+                        "ik_ctrl": "L_arm_ik_pole_CTRL",
+                    },
+                ],
+            }
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = os.path.join(temp_dir, "limbs.json")
+            with open(path, "w") as handle:
+                json.dump({"R_arm": {"fk_match_ik": [], "ik_match_fk": []}}, handle)
+
+            ikfk_io.save_limbs(limbs, path)
+
+            with open(path, "r") as handle:
+                raw_data = json.load(handle)
+
+        self.assertIn("L_arm", raw_data)
+        self.assertNotIn("R_arm", raw_data)
 
 
 class GenerateIkMatchFkPairsTests(unittest.TestCase):

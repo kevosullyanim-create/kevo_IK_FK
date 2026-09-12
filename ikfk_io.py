@@ -640,10 +640,6 @@ def save_fk_match_ik_pairs(fk_match_ik_pairs, path):
     preserving each limb's IK match FK data and top-level switch settings."""
     current = load_limbs(path) if os.path.isfile(path) else {}
 
-    for limb_name in list(current.keys()):
-        if limb_name not in fk_match_ik_pairs:
-            del current[limb_name]
-
     for limb_name, pairs in fk_match_ik_pairs.items():
         current.setdefault(limb_name, _fresh_empty_limb_data())
         current[limb_name]["fk_match_ik"] = _copy_pairs(pairs)
@@ -665,10 +661,6 @@ def save_ik_match_fk_pairs(ik_match_fk_pairs, path):
     """Write only the IK match FK lists into the nested limb structure,
     preserving each limb's FK match IK data and top-level switch settings."""
     current = load_limbs(path) if os.path.isfile(path) else {}
-
-    for limb_name in list(current.keys()):
-        if limb_name not in ik_match_fk_pairs:
-            del current[limb_name]
 
     for limb_name, pairs in ik_match_fk_pairs.items():
         current.setdefault(limb_name, _fresh_empty_limb_data())

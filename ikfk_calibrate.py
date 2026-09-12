@@ -383,6 +383,7 @@ def _measure_ik_handle_offset(source_ctrl, ik_ctrl, rotate_order):
     rotate_y = 0
     rotate_z = 0
     con_loc = None
+    hook_loc = None
 
     try:
         con_loc = cmds.spaceLocator(
@@ -417,6 +418,8 @@ def _measure_ik_handle_offset(source_ctrl, ik_ctrl, rotate_order):
         rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
 
     finally:
+        if hook_loc and cmds.objExists(hook_loc):
+            cmds.delete(hook_loc)
         if con_loc and cmds.objExists(con_loc):
             cmds.delete(con_loc)
 

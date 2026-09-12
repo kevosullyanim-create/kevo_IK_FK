@@ -19,8 +19,7 @@ from ikfk_io import (
     get_selected_short_name,
     load_limbs,
     load_switch_settings,
-    save_fk_match_ik_pairs,
-    save_ik_match_fk_pairs,
+    save_limbs,
     save_switch_settings,
 )
 from ikfk_calibrate import (
@@ -1032,20 +1031,7 @@ def _do_save(save_as=False, *_args):
             path += ".json"
 
     try:
-        save_fk_match_ik_pairs(
-            {
-                limb_name: limb_data.get("fk_match_ik", [])
-                for limb_name, limb_data in _config.items()
-            },
-            path
-        )
-        save_ik_match_fk_pairs(
-            {
-                limb_name: limb_data.get("ik_match_fk", [])
-                for limb_name, limb_data in _config.items()
-            },
-            path
-        )
+        save_limbs(_config, path)
         save_switch_settings(_switch_settings, path)
 
     except Exception as exc:
@@ -1148,27 +1134,30 @@ def _do_build(*_args):
 
     for limb_name, pairs in generated_ik_match_fk.items():
         existing_pairs = _ensure_limb_data(limb_name)["ik_match_fk"]
+        generated_by_role = {
+            (pair.get("role"), pair.get("type", "offset")): pair
+            for pair in pairs
+            if isinstance(pair, dict) and pair.get("role")
+        }
         existing_by_role = {
             (pair.get("role"), pair.get("type", "offset")): pair
             for pair in existing_pairs
             if isinstance(pair, dict) and pair.get("role")
         }
-        merged_pairs = []
 
-        for pair in pairs:
-            if not isinstance(pair, dict):
-                merged_pairs.append(pair)
-                continue
+        # Preserve every existing non-generated/manual entry exactly as-is.
+        merged_pairs = [
+            pair for pair in existing_pairs
+            if not (isinstance(pair, dict) and pair.get("role"))
+        ]
 
-            pair_key = (pair.get("role"), pair.get("type", "offset"))
-
-            if pair.get("role") and pair_key in existing_by_role:
+        for pair_key, generated_pair in generated_by_role.items():
+            if pair_key in existing_by_role:
                 merged_pair = dict(existing_by_role[pair_key])
-                merged_pair.update(pair)
+                merged_pair.update(generated_pair)
                 merged_pairs.append(merged_pair)
-                continue
-
-            merged_pairs.append(pair)
+            else:
+                merged_pairs.append(generated_pair)
 
         _config[limb_name]["ik_match_fk"] = merged_pairs
 
@@ -1179,22 +1168,7 @@ def _do_build(*_args):
 
     if _config_path:
         try:
-            save_fk_match_ik_pairs(
-                {
-                    limb_name: limb_data.get("fk_match_ik", [])
-                    for limb_name, limb_data in _config.items()
-                },
-                _config_path
-            )
-
-            save_ik_match_fk_pairs(
-                {
-                    limb_name: limb_data.get("ik_match_fk", [])
-                    for limb_name, limb_data in _config.items()
-                },
-                _config_path
-            )
-
+            save_limbs(_config, _config_path)
             save_switch_settings(
                 _switch_settings,
                 _config_path
