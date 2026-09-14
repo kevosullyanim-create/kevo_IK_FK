@@ -1,9 +1,9 @@
 """
 ikfk_switch_fk_to_ik.py
 
-FK -> IK snap: read the FK-driven controls' current pose, and move the
+IK match FK snap: read the FK-driven controls' current pose, and move the
 IK controls to match. Two pair types, handled differently (see
-DEFAULT_FK_TO_IK_LIMBS in ikfk_io.py for the full explanation):
+the saved IK match FK pairs in ikfk_io.py for the full explanation):
 
   "offset" pairs (shoulder, IK handle) - same con_loc/hook_loc
   technique as IK -> FK, just with the driver/target roles swapped
@@ -18,7 +18,12 @@ DEFAULT_FK_TO_IK_LIMBS in ikfk_io.py for the full explanation):
 """
 import maya.cmds as cmds
 
-from ikfk_io import ns_join, get_switch_plug, load_fk_to_ik_limbs, load_switch_settings
+from ikfk_io import (
+    ns_join,
+    get_switch_plug,
+    load_ik_match_fk_pairs,
+    load_switch_settings,
+)
 from ikfk_snap_common import (
     read_pair_offset,
     key_channels,
@@ -234,7 +239,7 @@ def _validate_pole_vector_pair(namespace, limb_name, index, pair):
     return problems
 
 
-def _validate_fk_to_ik_limb(namespace, limb_name, limb_data, switch_data):
+def _validate_ik_match_fk_limb(namespace, limb_name, limb_data, switch_data):
     """validate_switch_data (shared/common) handles "offset" pairs
     correctly as-is, since it only cares about driver_key/target_key
     and read_pair_offset - but it doesn't know about "pole_vector"
@@ -255,7 +260,7 @@ def _validate_fk_to_ik_limb(namespace, limb_name, limb_data, switch_data):
         limb_name,
         offset_pairs,
         switch_data,
-        driver_key="fk_ctrl",
+        driver_key="source",
         target_key="ik_ctrl"
     )
 
@@ -310,13 +315,13 @@ def snap_fk_to_ik(
             "No pole vector distance set. Enter one in the field on "
             "the IK/FK tab before snapping."
         )
-    limbs = load_fk_to_ik_limbs(calibration_path)
+    limbs = load_ik_match_fk_pairs(calibration_path)
 
     if limb_name not in limbs:
         available = ", ".join(sorted(limbs.keys())) or "<none>"
 
         raise KeyError(
-            "Limb '{0}' has no FK -> IK pairs defined.\n\n"
+            "Limb '{0}' has no IK match FK pairs defined.\n\n"
             "Available limbs: {1}".format(
                 limb_name,
                 available
@@ -337,7 +342,7 @@ def snap_fk_to_ik(
     limb_data = limbs[limb_name]
     switch_data = switch_settings[limb_name]
 
-    problems = _validate_fk_to_ik_limb(
+    problems = _validate_ik_match_fk_limb(
         namespace,
         limb_name,
         limb_data,
@@ -346,7 +351,7 @@ def snap_fk_to_ik(
 
     if problems:
         raise RuntimeError(
-            "Cannot perform FK -> IK switch:\n\n{0}".format(
+            "Cannot perform IK match FK switch:\n\n{0}".format(
                 "\n".join(problems)
             )
         )
@@ -359,7 +364,7 @@ def snap_fk_to_ik(
 
     print("")
     print("=" * 60)
-    print("FK -> IK Switch")
+    print("IK Match FK Switch")
     print("Namespace: {0}".format(namespace))
     print("Limb: {0}".format(limb_name))
     print("Calibration: {0}".format(calibration_path))
@@ -492,7 +497,7 @@ def snap_fk_to_ik(
             # (translate + rotate) is applied on top of that before
             # driving the IK target.
             # -----------------------------------------------------
-            fk_name = pair["fk_ctrl"].strip()
+            fk_name = pair["source"].strip()
             ik_name = pair["ik_ctrl"].strip()
 
             fk_ctrl = ns_join(namespace, fk_name)

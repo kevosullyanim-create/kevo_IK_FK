@@ -1,14 +1,19 @@
 """
 ikfk_switch_ik_to_fk.py
 
-IK -> FK snap: read the IK-driven joint's current pose, and rotate the
+FK match IK snap: read the IK-driven joint's current pose, and rotate the
 FK control to match it, using the offset calibrated on the
 Calibration tab. Rotation-only - FK controls stay positioned by their
 own rig hierarchy, so translate is never touched here.
 """
 import maya.cmds as cmds
 
-from ikfk_io import ns_join, get_switch_plug, load_limbs, load_switch_settings
+from ikfk_io import (
+    ns_join,
+    get_switch_plug,
+    load_fk_match_ik_pairs,
+    load_switch_settings,
+)
 from ikfk_snap_common import (
     read_pair_offset,
     key_channels,
@@ -65,7 +70,7 @@ def snap_ik_to_fk(
             "Calibration tab first."
         )
 
-    limbs = load_limbs(calibration_path)
+    limbs = load_fk_match_ik_pairs(calibration_path)
 
     if limb_name not in limbs:
         available = ", ".join(sorted(limbs.keys())) or "<none>"
@@ -99,12 +104,12 @@ def snap_ik_to_fk(
         limb_data,
         switch_data,
         driver_key="fk_ctrl",
-        target_key="ik_ctrl"
+        target_key="source"
     )
 
     if problems:
         raise RuntimeError(
-            "Cannot perform IK -> FK switch:\n\n{0}".format(
+            "Cannot perform FK match IK switch:\n\n{0}".format(
                 "\n".join(problems)
             )
         )
@@ -117,7 +122,7 @@ def snap_ik_to_fk(
 
     print("")
     print("=" * 60)
-    print("IK -> FK Switch")
+    print("FK Match IK Switch")
     print("Namespace: {0}".format(namespace))
     print("Limb: {0}".format(limb_name))
     print("Calibration: {0}".format(calibration_path))
@@ -156,7 +161,7 @@ def snap_ik_to_fk(
 
         for index, pair in enumerate(limb_data):
             fk_name = pair["fk_ctrl"].strip()
-            ik_name = pair["ik_ctrl"].strip()
+            ik_name = pair["source"].strip()
 
             fk_ctrl = ns_join(namespace, fk_name)
             ik_ctrl = ns_join(namespace, ik_name)
