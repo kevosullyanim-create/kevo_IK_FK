@@ -278,6 +278,67 @@ def _find_generated_ik_match_fk_pair(pairs, role, pair_type):
     return None
 
 
+def _derive_pole_vector_sequence(limb_name, fk_match_ik_pairs):
+    """Return the ordered shoulder/elbow/wrist entries from a PV start.
+
+    Exactly one marked pair is the sequence start.
+    """
+    marked_indices = [
+        index for index, pair in enumerate(fk_match_ik_pairs)
+        if isinstance(pair, dict) and pair.get("use_for_pole_vector")
+    ]
+
+    if len(marked_indices) == 1:
+        start_index = marked_indices[0]
+    elif not marked_indices:
+        raise ValueError(
+            "{0}: mark one FK Match IK pair as PV Start.".format(limb_name)
+        )
+    else:
+        raise ValueError(
+            "{0}: mark only one FK Match IK pair as PV Start."
+            .format(limb_name)
+        )
+
+    end_index = start_index + 3
+    if end_index > len(fk_match_ik_pairs):
+        raise ValueError(
+            "{0}: PV Start is Pair {1}, but it needs that pair and the "
+            "next two FK Match IK pairs. Add the missing pair(s) or choose "
+            "an earlier start.".format(limb_name, start_index + 1)
+        )
+
+    sequence = fk_match_ik_pairs[start_index:end_index]
+    invalid_pairs = [
+        str(index + 1) for index, pair in enumerate(
+            sequence, start=start_index)
+        if not isinstance(pair, dict) or not pair.get("fk_ctrl", "").strip()
+    ]
+    if invalid_pairs:
+        raise ValueError(
+            "{0}: PV sequence needs FK Controls on Pair(s) {1}."
+            .format(limb_name, ", ".join(invalid_pairs))
+        )
+
+    return sequence
+
+
+def validate_pole_vector_sequences(limbs):
+    """Return per-limb errors for pole-vector sequence configuration."""
+    problems = []
+
+    for limb_name, limb_data in limbs.items():
+        try:
+            _derive_pole_vector_sequence(
+                limb_name,
+                limb_data.get("fk_match_ik", [])
+            )
+        except ValueError as exc:
+            problems.append(str(exc))
+
+    return problems
+
+
 def validate_ik_match_fk_pairs(limbs, namespace):
     problems = []
 
@@ -314,6 +375,23 @@ def validate_ik_match_fk_pairs(limbs, namespace):
                         ik_handle
                     )
                 )
+
+            handle_source = handle_pair.get("source", "").strip()
+            if not handle_source:
+                problems.append(
+                    "{0} - missing IK Handle Control source".format(
+                        limb_name
+                    )
+                )
+            else:
+                source_ctrl = ns_join(namespace, handle_source)
+                if not cmds.objExists(source_ctrl):
+                    problems.append(
+                        "{0} - IK Handle Control source missing: {1}".format(
+                            limb_name,
+                            source_ctrl
+                        )
+                    )
 
         if not pole_pair or not pole_pair.get("ik_ctrl", "").strip():
             problems.append(
@@ -379,6 +457,10 @@ def validate_ik_match_fk_pairs(limbs, namespace):
 
 
 def _measure_ik_handle_offset(source_ctrl, ik_ctrl, rotate_order):
+    """Measure the IK control transform relative to its configured source."""
+    translate_x = 0
+    translate_y = 0
+    translate_z = 0
     rotate_x = 0
     rotate_y = 0
     rotate_z = 0
@@ -399,13 +481,13 @@ def _measure_ik_handle_offset(source_ctrl, ik_ctrl, rotate_order):
         cmds.parent(hook_loc, con_loc)
 
         cmds.parentConstraint(
-            ik_ctrl,
+            source_ctrl,
             con_loc,
             maintainOffset=False
         )
 
         cmds.parentConstraint(
-            source_ctrl,
+            ik_ctrl,
             hook_loc,
             maintainOffset=False
         )
@@ -413,6 +495,9 @@ def _measure_ik_handle_offset(source_ctrl, ik_ctrl, rotate_order):
         cmds.dgdirty(allPlugs=True)
         cmds.refresh(force=True)
 
+        translate_x = round(cmds.getAttr(hook_loc + ".translateX"), 3)
+        translate_y = round(cmds.getAttr(hook_loc + ".translateY"), 3)
+        translate_z = round(cmds.getAttr(hook_loc + ".translateZ"), 3)
         rotate_x = round(cmds.getAttr(hook_loc + ".rotateX"), 3)
         rotate_y = round(cmds.getAttr(hook_loc + ".rotateY"), 3)
         rotate_z = round(cmds.getAttr(hook_loc + ".rotateZ"), 3)
@@ -423,7 +508,14 @@ def _measure_ik_handle_offset(source_ctrl, ik_ctrl, rotate_order):
         if con_loc and cmds.objExists(con_loc):
             cmds.delete(con_loc)
 
-    return rotate_x, rotate_y, rotate_z
+    return (
+        translate_x,
+        translate_y,
+        translate_z,
+        rotate_x,
+        rotate_y,
+        rotate_z,
+    )
 
 
 def generate_ik_match_fk_pairs(
@@ -435,10 +527,9 @@ def generate_ik_match_fk_pairs(
     Generate per-limb IK match FK data from the FK match IK pair list.
 
     For each limb:
-    - exactly three FK match IK pairs must be marked use_for_pole_vector
-    - the first/second/third marked FK controls become shoulder/elbow/wrist
-    - the generated IK handle pair uses the last marked FK control as its
-      source
+    - one FK match IK pair is marked use_for_pole_vector as the sequence start
+    - that pair and its next two ordered pairs become shoulder/elbow/wrist
+    - the generated IK handle pair retains its configured source
     - the generated pole-vector pair uses the stored pole-vector control
       and the three marked FK controls
 
@@ -473,6 +564,14 @@ def generate_ik_match_fk_pairs(
                 )
             )
 
+        handle_source = handle_pair.get("source", "").strip()
+        if not handle_source:
+            raise ValueError(
+                "{0}: set an IK Handle Control source before building.".format(
+                    limb_name
+                )
+            )
+
         if not pole_pair or not pole_pair.get("ik_ctrl", "").strip():
             raise ValueError(
                 "{0}: set a Pole Vector Control before building.".format(
@@ -480,30 +579,23 @@ def generate_ik_match_fk_pairs(
                 )
             )
 
-        pv_pairs = [
-            pair for pair in fk_match_ik_pairs
-            if isinstance(pair, dict) and pair.get("use_for_pole_vector")
-        ]
+        pv_pairs = _derive_pole_vector_sequence(
+            limb_name,
+            fk_match_ik_pairs
+        )
+        shoulder_fk = pv_pairs[0]["fk_ctrl"].strip()
+        elbow_fk = pv_pairs[1]["fk_ctrl"].strip()
+        wrist_fk = pv_pairs[2]["fk_ctrl"].strip()
 
-        if len(pv_pairs) != 3:
-            raise ValueError(
-                "{0}: exactly 3 FK match IK pairs must be marked PV; "
-                "found {1}.".format(limb_name, len(pv_pairs))
-            )
-
-        shoulder_fk = pv_pairs[0].get("fk_ctrl", "").strip()
-        elbow_fk = pv_pairs[1].get("fk_ctrl", "").strip()
-        wrist_fk = pv_pairs[2].get("fk_ctrl", "").strip()
-
-        if not shoulder_fk or not elbow_fk or not wrist_fk:
-            raise ValueError(
-                "{0}: all 3 PV-marked pairs need FK controls.".format(
-                    limb_name
-                )
-            )
-
-        rotate_x, rotate_y, rotate_z = _measure_ik_handle_offset(
-            source_ctrl=ns_join(namespace, wrist_fk),
+        (
+            translate_x,
+            translate_y,
+            translate_z,
+            rotate_x,
+            rotate_y,
+            rotate_z,
+        ) = _measure_ik_handle_offset(
+            source_ctrl=ns_join(namespace, handle_source),
             ik_ctrl=ns_join(namespace, handle_pair["ik_ctrl"].strip()),
             rotate_order=rotate_order
         )
@@ -520,10 +612,14 @@ def generate_ik_match_fk_pairs(
                 "type": "offset",
                 "role": "ik_handle",
                 "ik_ctrl": handle_pair["ik_ctrl"].strip(),
-                "source": wrist_fk,
+                "source": handle_source,
                 "offset": {
                     "rotate_order": rotate_order,
-                    "translate": {"x": 0, "y": 0, "z": 0},
+                    "translate": {
+                        "x": translate_x,
+                        "y": translate_y,
+                        "z": translate_z,
+                    },
                     "rotate": {
                         "x": rotate_x,
                         "y": rotate_y,
@@ -548,7 +644,14 @@ def generate_ik_match_fk_pairs(
         print(
             "  [OK] IK handle: {0} <- {1}".format(
                 handle_pair["ik_ctrl"].strip(),
-                wrist_fk
+                handle_source
+            )
+        )
+        print(
+            "       Translation offset: X={0:.3f}, Y={1:.3f}, Z={2:.3f}".format(
+                translate_x,
+                translate_y,
+                translate_z
             )
         )
         print(
