@@ -491,11 +491,10 @@ def snap_fk_to_ik(
 
             # -----------------------------------------------------
             # "offset" pairs: shoulder (self-match, no-op) and the
-            # IK handle. Same con_loc/hook_loc technique as
-            # IK -> FK, but the child becomes the parent - con_loc
-            # is now constrained to the FK driver, and the offset
-            # (translate + rotate) is applied on top of that before
-            # driving the IK target.
+            # IK handle. Match the FK -> IK path to the established
+            # FK matching IK locator flow: freeze the parent to the
+            # source, then apply the calibrated child-local transform
+            # before snapping the target from that child.
             # -----------------------------------------------------
             fk_name = pair["source"].strip()
             ik_name = pair["ik_ctrl"].strip()
@@ -533,7 +532,6 @@ def snap_fk_to_ik(
 
             cmds.parent(hook_loc, con_loc)
 
-            # Snap the parent locator to the live FK driver, then freeze it.
             driver_constraint = cmds.parentConstraint(
                 fk_ctrl,
                 con_loc,
@@ -583,7 +581,6 @@ def snap_fk_to_ik(
                 current_frame,
                 ["translate", "rotate"]
             )
-
             cmds.delete(ik_constraint)
 
             matched_count += 1
