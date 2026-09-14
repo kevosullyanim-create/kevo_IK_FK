@@ -28,6 +28,7 @@ from ikfk_calibrate import (
     generate_ik_match_fk_pairs,
     validate_calibration_pairs,
     validate_ik_match_fk_pairs,
+    validate_pole_vector_sequences,
 )
 
 from ikfk_switch_ik_to_fk import snap_ik_to_fk
@@ -61,6 +62,7 @@ _ikfk_warning_label = None
 _key_before_cb = None
 _key_after_cb = None
 _ikfk_buttons_column = None
+_ikfk_buttons_layout = None
 
 # Switch settings (object/attr_name/ik_value/fk_value per limb),
 # loaded from the calibration JSON's "switch_settings" block. This
@@ -284,15 +286,12 @@ def _toggle_pole_vector_flag(limb, index, value, *_args):
     pairs = _ensure_limb_data(limb)["fk_match_ik"]
 
     if value:
-        selected = [
-            pair for pair in pairs
-            if isinstance(pair, dict) and pair.get("use_for_pole_vector")
-        ]
-
-        if len(selected) >= 3:
-            cmds.warning("A maximum of 3 FK match IK pairs can be marked PV.")
-            _rebuild_table()
-            return
+        # This is a sequence anchor, not a three-item selection. Clear
+        # historical multi-marked data when the user explicitly chooses
+        # a new start so the next two ordered pairs can be derived.
+        for pair in pairs:
+            if isinstance(pair, dict):
+                pair["use_for_pole_vector"] = False
 
     pairs[index]["use_for_pole_vector"] = bool(value)
     _rebuild_table()
@@ -574,7 +573,7 @@ def _rebuild_table(*_args):
             header_row = cmds.rowLayout(
                 numberOfColumns=3,
                 adjustableColumn=1,
-                columnWidth=[(2, 55), (3, 60)],
+                columnWidth=[(2, 70), (3, 60)],
                 columnAttach=[
                     (1, "both", 0),
                     (2, "both", 3),
@@ -593,8 +592,12 @@ def _rebuild_table(*_args):
             )
 
             cmds.checkBox(
-                label="PV",
+                label="PV Start",
                 value=bool(pair.get("use_for_pole_vector", False)),
+                annotation=(
+                    "Use this pair and the next two FK Match IK pairs "
+                    "as the ordered pole-vector sequence."
+                ),
                 changeCommand=lambda value, *_args, l=limb_name, i=idx:
                     _toggle_pole_vector_flag(l, i, value),
                 parent=header_row
@@ -846,66 +849,58 @@ def _rebuild_table(*_args):
 def _rebuild_ikfk_buttons(*_args):
     """Rebuild the per-limb snap buttons on the IK/FK tab based on current
     _switch_settings. Called whenever switch settings change."""
+    global _ikfk_buttons_layout
+
     if not _ikfk_buttons_column:
         return
-    
-    # Delete all children from the "Snap IK -> FK" section onwards.
-    # Identify this by finding the last separator (the one before the buttons section)
-    # and delete everything after it.
-    children = cmds.layout(_ikfk_buttons_column, query=True, childArray=True) or []
-    
-    # Find the index of the LAST separator before our button content.
-    # Separators mark structural boundaries in the UI.
-    last_separator_index = -1
-    for i, child in enumerate(children):
-        if cmds.objExists(child):
-            try:
-                # Check if this is a separator by trying to query it as one
-                if cmds.separator(child, query=True, exists=True):
-                    last_separator_index = i
-            except:
-                pass
-    
-    # Delete everything after the last separator
-    if last_separator_index >= 0:
-        for child_to_delete in children[last_separator_index + 1:]:
-            if cmds.objExists(child_to_delete):
-                cmds.deleteUI(child_to_delete)
-    
-    # Only rebuild button section if there are switch settings
+
+    if _ikfk_buttons_layout and cmds.layout(
+            _ikfk_buttons_layout, query=True, exists=True):
+        cmds.deleteUI(_ikfk_buttons_layout)
+
+    _pole_distance_fields.clear()
+    cmds.setParent(_ikfk_buttons_column)
+    _ikfk_buttons_layout = cmds.columnLayout(
+        adjustableColumn=True,
+        rowSpacing=10,
+        parent=_ikfk_buttons_column
+    )
+
+    # Only rebuild button section if there are switch settings.
     if not _switch_settings:
         return
-    
-    # Rebuild the buttons section
-    cmds.setParent(_ikfk_buttons_column)
-    
-    cmds.separator(height=8, style="in")
+
+    cmds.separator(height=8, style="in", parent=_ikfk_buttons_layout)
     
     cmds.text(
         label="FK match IK, per limb:",
         align="left",
-        font="boldLabelFont"
+        font="boldLabelFont",
+        parent=_ikfk_buttons_layout
     )
 
     for limb_name in sorted(_switch_settings.keys()):
         cmds.button(
             label="{0} FK match IK".format(limb_name),
             command=lambda *_args, l=limb_name: _do_snap(l, "ik_to_fk"),
-            height=28
+            height=28,
+            parent=_ikfk_buttons_layout
         )
 
     cmds.button(
         label="All Limbs FK Match IK",
         height=32,
-        command=lambda *_args: _do_snap_all("ik_to_fk")
+        command=lambda *_args: _do_snap_all("ik_to_fk"),
+        parent=_ikfk_buttons_layout
     )
 
-    cmds.separator(height=8, style="in")
+    cmds.separator(height=8, style="in", parent=_ikfk_buttons_layout)
 
     cmds.text(
         label="IK match FK, per limb:",
         align="left",
-        font="boldLabelFont"
+        font="boldLabelFont",
+        parent=_ikfk_buttons_layout
     )
 
     for limb_name in sorted(_switch_settings.keys()):
@@ -933,12 +928,13 @@ def _rebuild_ikfk_buttons(*_args):
 
         _pole_distance_fields[limb_name] = field
 
-        cmds.setParent(_ikfk_buttons_column)
+        cmds.setParent(_ikfk_buttons_layout)
 
     cmds.button(
         label="All Limbs IK Match FK",
         height=32,
-        command=lambda *_args: _do_snap_all("fk_to_ik")
+        command=lambda *_args: _do_snap_all("fk_to_ik"),
+        parent=_ikfk_buttons_layout
     )
 
 
@@ -1072,6 +1068,15 @@ def _do_build(*_args):
         problems.append(
             "Invalid IK Match FK Data:\n{0}".format(
                 "\n".join(ik_match_fk_problems)
+            )
+        )
+
+    pole_vector_problems = validate_pole_vector_sequences(_config)
+
+    if pole_vector_problems:
+        problems.append(
+            "Invalid Pole Vector Sequence:\n{0}".format(
+                "\n".join(pole_vector_problems)
             )
         )
 
@@ -1417,7 +1422,9 @@ def _build_calibration_tab(parent):
         label=(
             "Select an object in the viewport, then press Set on the "
             "row where you want it stored. For the switch attribute, "
-            "highlight it in the Channel Box first, then press Set."
+            "highlight it in the Channel Box first, then press Set. Mark "
+            "PV Start on the first of three consecutive FK Match IK pairs; "
+            "the next two are used automatically."
         ),
         align="left",
         wordWrap=True
