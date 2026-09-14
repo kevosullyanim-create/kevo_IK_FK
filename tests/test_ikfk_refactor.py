@@ -21,6 +21,7 @@ sys.modules["maya.cmds"] = cmds_stub
 
 import ikfk_calibrate  # noqa: E402
 import ikfk_io  # noqa: E402
+import ikfk_ui  # noqa: E402
 
 
 class LoadLimbsMigrationTests(unittest.TestCase):
@@ -425,6 +426,26 @@ class GenerateIkMatchFkPairsTests(unittest.TestCase):
             ikfk_calibrate.generate_ik_match_fk_pairs(config, "char")
 
         self.assertIn("exactly 3 FK match IK pairs must be marked PV", str(error.exception))
+
+
+class CalibrationUiTests(unittest.TestCase):
+
+    def test_pole_vector_control_row_has_a_fixed_label(self):
+        cmds = mock.Mock()
+        cmds.rowLayout.return_value = "poleVectorRow"
+
+        with mock.patch.object(ikfk_ui, "cmds", cmds):
+            ikfk_ui._build_pole_vector_control_row(
+                "parentLayout",
+                "pole_ctrl",
+                "L_arm"
+            )
+
+        cmds.text.assert_called_once_with(
+            label="Pole Vector Control",
+            align="left",
+            parent="parentLayout"
+        )
 
 
 if __name__ == "__main__":

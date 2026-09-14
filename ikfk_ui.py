@@ -404,7 +404,7 @@ def _build_field_row(parent, label, value, limb_name, section, idx, key):
 
 def _build_pole_vector_control_row(parent, value, limb_name):
     cmds.text(
-        label=label,
+        label="Pole Vector Control",
         align="left",
         parent=parent
     )
