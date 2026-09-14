@@ -34,12 +34,12 @@ DEFAULT_LIMBS = {
             {
                 "fk_ctrl": "L_arm_fk_001_CTRL",
                 "source": "L_arm001_JNT",
-                "use_for_pole_vector": True,
+                "use_for_pole_vector": False,
             },
             {
                 "fk_ctrl": "L_arm_fk_002_CTRL",
                 "source": "L_arm002_JNT",
-                "use_for_pole_vector": True,
+                "use_for_pole_vector": False,
             },
         ],
         "ik_match_fk": [
@@ -74,12 +74,12 @@ DEFAULT_LIMBS = {
             {
                 "fk_ctrl": "R_arm_fk_001_CTRL",
                 "source": "R_arm001_JNT",
-                "use_for_pole_vector": True,
+                "use_for_pole_vector": False,
             },
             {
                 "fk_ctrl": "R_arm_fk_002_CTRL",
                 "source": "R_arm002_JNT",
-                "use_for_pole_vector": True,
+                "use_for_pole_vector": False,
             },
         ],
         "ik_match_fk": [
