@@ -200,27 +200,19 @@ def _ensure_limb_data(limb_name):
     return limb_data
 
 
-def _find_special_ik_match_fk_pair(limb_name, role, pair_type):
+def _find_pole_vector_pair(limb_name):
     limb_data = _ensure_limb_data(limb_name)
 
     for pair in limb_data["ik_match_fk"]:
         if not isinstance(pair, dict):
             continue
 
-        if pair.get("role") == role and pair.get("type", "offset") == pair_type:
+        if (
+                pair.get("role") == "pole_vector"
+                and pair.get("type") == "pole_vector"):
             return pair
 
-    if role == "ik_handle":
-        pair = {
-            "type": "offset",
-            "role": "ik_handle",
-            "ik_ctrl": "",
-            "source": "",
-        }
-        limb_data["ik_match_fk"].insert(0, pair)
-        return pair
-
-    pair = {
+    pole_pair = {
         "type": "pole_vector",
         "role": "pole_vector",
         "ik_ctrl": "",
@@ -228,8 +220,8 @@ def _find_special_ik_match_fk_pair(limb_name, role, pair_type):
         "elbow_ctrl": "",
         "wrist_ctrl": "",
     }
-    limb_data["ik_match_fk"].append(pair)
-    return pair
+    limb_data["ik_match_fk"].append(pole_pair)
+    return pole_pair
 
 
 def _set_field(limb, section, index, key, *_args):
@@ -245,18 +237,16 @@ def _clear_field(limb, section, index, key, *_args):
     _rebuild_table()
 
 
-def _set_special_ik_match_fk_field(limb, role, pair_type, key, *_args):
+def _set_pole_vector_field(limb, *_args):
     value = get_selected_short_name()
     if value is None:
         return
-    pair = _find_special_ik_match_fk_pair(limb, role, pair_type)
-    pair[key] = value
+    _find_pole_vector_pair(limb)["ik_ctrl"] = value
     _rebuild_table()
 
 
-def _clear_special_ik_match_fk_field(limb, role, pair_type, key, *_args):
-    pair = _find_special_ik_match_fk_pair(limb, role, pair_type)
-    pair[key] = ""
+def _clear_pole_vector_field(limb, *_args):
+    _find_pole_vector_pair(limb)["ik_ctrl"] = ""
     _rebuild_table()
 
 
@@ -412,7 +402,7 @@ def _build_field_row(parent, label, value, limb_name, section, idx, key):
     )
 
 
-def _build_special_ik_match_fk_row(parent, label, value, limb_name, role):
+def _build_pole_vector_control_row(parent, value, limb_name):
     cmds.text(
         label=label,
         align="left",
@@ -437,25 +427,19 @@ def _build_special_ik_match_fk_row(parent, label, value, limb_name, role):
     cmds.textField(
         text=value,
         editable=False,
-        annotation=label,
+        annotation="Pole Vector Control",
         parent=row
     )
 
     cmds.button(
         label="Set",
-        command=lambda *_args, l=limb_name, r=role:
-            _set_special_ik_match_fk_field(
-                l, r, "pole_vector" if r == "pole_vector" else "offset", "ik_ctrl"
-            ),
+        command=lambda *_args, l=limb_name: _set_pole_vector_field(l),
         parent=row
     )
 
     cmds.button(
         label="Clear",
-        command=lambda *_args, l=limb_name, r=role:
-            _clear_special_ik_match_fk_field(
-                l, r, "pole_vector" if r == "pole_vector" else "offset", "ik_ctrl"
-            ),
+        command=lambda *_args, l=limb_name: _clear_pole_vector_field(l),
         parent=row
     )
 
@@ -518,17 +502,11 @@ def _rebuild_table(*_args):
     for limb_name, limb_data in _config.items():
         fk_match_ik_pairs = limb_data.get("fk_match_ik", [])
         ik_match_fk_pairs = limb_data.get("ik_match_fk", [])
-        handle_pair = _find_special_ik_match_fk_pair(
-            limb_name, "ik_handle", "offset"
-        )
-        pole_pair = _find_special_ik_match_fk_pair(
-            limb_name, "pole_vector", "pole_vector"
-        )
-        manual_ik_match_fk_pairs = [
+        pole_pair = _find_pole_vector_pair(limb_name)
+        ik_match_fk_offset_pairs = [
             (index, pair) for index, pair in enumerate(ik_match_fk_pairs)
             if isinstance(pair, dict)
             and pair.get("type", "offset") == "offset"
-            and pair.get("role") != "ik_handle"
         ]
 
         limb_frame = cmds.frameLayout(
@@ -657,30 +635,20 @@ def _rebuild_table(*_args):
             parent=limb_column
         )
 
-        _build_special_ik_match_fk_row(
+        _build_pole_vector_control_row(
             limb_column,
-            "IK Handle Control",
-            handle_pair.get("ik_ctrl", ""),
-            limb_name,
-            "ik_handle"
-        )
-
-        _build_special_ik_match_fk_row(
-            limb_column,
-            "Pole Vector Control",
             pole_pair.get("ik_ctrl", ""),
-            limb_name,
-            "pole_vector"
+            limb_name
         )
 
-        if not manual_ik_match_fk_pairs:
+        if not ik_match_fk_offset_pairs:
             cmds.text(
-                label="No additional IK match FK offset pairs.",
+                label="No IK match FK offset pairs.",
                 align="left",
                 parent=limb_column
             )
 
-        for display_index, (idx, pair) in enumerate(manual_ik_match_fk_pairs, start=1):
+        for display_index, (idx, pair) in enumerate(ik_match_fk_offset_pairs, start=1):
             ik_value = pair.get("ik_ctrl", "").strip()
             source_value = pair.get("source", "").strip()
 
@@ -721,7 +689,11 @@ def _rebuild_table(*_args):
             )
 
             cmds.text(
-                label="Pair {0} - {1}".format(display_index, status_text),
+                label="{0} - {1}".format(
+                    "IK Handle Pair" if pair.get("role") == "ik_handle"
+                    else "Pair {0}".format(display_index),
+                    status_text
+                ),
                 align="left",
                 font="boldLabelFont",
                 enableBackground=True,
